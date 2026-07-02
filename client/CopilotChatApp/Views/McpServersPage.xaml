@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ContentPage
+    x:Class="CopilotChatApp.Views.McpServersPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:services="clr-namespace:CopilotChatApp.Services"
+    Title="MCP Servers">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="16">
+
+            <Label Text="設定済みのMCPサーバー" FontAttributes="Bold" />
+            <ActivityIndicator x:Name="LoadingIndicator" IsRunning="False" IsVisible="False" />
+            <CollectionView x:Name="ServersView" ItemsSource="{Binding Servers}">
+                <CollectionView.EmptyView>
+                    <Label Text="MCPサーバーは登録されていません。" TextColor="Gray" />
+                </CollectionView.EmptyView>
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="services:McpServerSummary">
+                        <Grid Padding="0,8" ColumnDefinitions="*,Auto">
+                            <VerticalStackLayout Grid.Column="0">
+                                <Label Text="{Binding Name}" FontAttributes="Bold" />
+                                <Label Text="{Binding DisplaySubtitle}" FontSize="12" TextColor="Gray" LineBreakMode="TailTruncation" />
+                            </VerticalStackLayout>
+                            <Button Grid.Column="1"
+                                    Text="削除"
+                                    TextColor="Red"
+                                    BackgroundColor="Transparent"
+                                    Clicked="OnRemoveClicked"
+                                    CommandParameter="{Binding Name}" />
+                        </Grid>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+
+            <BoxView HeightRequest="1" Color="LightGray" Margin="0,12" />
+
+            <Label Text="MCPサーバーを追加" FontAttributes="Bold" />
+
+            <Label Text="種類" FontSize="12" TextColor="Gray" />
+            <Picker x:Name="TransportPicker" SelectedIndexChanged="OnTransportChanged">
+                <Picker.ItemsSource>
+                    <x:Array Type="{x:Type x:String}">
+                        <x:String>stdio (ローカルコマンド)</x:String>
+                        <x:String>http (リモートURL)</x:String>
+                    </x:Array>
+                </Picker.ItemsSource>
+            </Picker>
+
+            <Label Text="サーバー名" FontSize="12" TextColor="Gray" />
+            <Entry x:Name="NameEntry" Placeholder="例: context7" />
+
+            <Label x:Name="CommandLabel" Text="コマンド" FontSize="12" TextColor="Gray" />
+            <Entry x:Name="CommandEntry" Placeholder="例: npx" />
+
+            <Label x:Name="ArgsLabel" Text="引数(スペース区切り)" FontSize="12" TextColor="Gray" />
+            <Entry x:Name="ArgsEntry" Placeholder="例: -y @upstash/context7-mcp" />
+
+            <Label x:Name="UrlLabel" Text="URL" FontSize="12" TextColor="Gray" IsVisible="False" />
+            <Entry x:Name="UrlEntry" Placeholder="例: https://mcp.example.com/mcp" IsVisible="False" Keyboard="Url" />
+
+            <Button Text="追加" Clicked="OnAddClicked" Margin="0,12,0,0" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

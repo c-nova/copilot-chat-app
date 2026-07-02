@@ -1,0 +1,24 @@
+# --- Node / server ---
+node_modules/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+
+# Server runtime config & data (contains AUTH_TOKEN - never commit)
+server/.env
+server/workspace/
+
+# --- .NET / MAUI client ---
+client/**/bin/
+client/**/obj/
+*.user
+*.suo
+.vs/
+
+# macOS / Xcode junk (in case client is opened on a Mac)
+.DS_Store
+*.xcuserstate
+**/*.xcuserdatad/
+
+# Editor
+.vscode/

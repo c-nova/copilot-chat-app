@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ContentPage
+    x:Class="CopilotChatApp.Views.SelectableTextPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    Title="メッセージ全文">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="全文コピー" Clicked="OnCopyAllClicked" />
+    </ContentPage.ToolbarItems>
+
+    <Grid RowDefinitions="Auto,*" Padding="12" RowSpacing="8">
+        <Label Grid.Row="0"
+               Text="テキストをドラッグ選択して、右クリック(またはロングタップ)でコピーできます。"
+               FontSize="12"
+               TextColor="Gray" />
+        <Editor x:Name="TextEditor"
+                Grid.Row="1"
+                IsReadOnly="True"
+                BackgroundColor="Transparent" />
+    </Grid>
+
+</ContentPage>

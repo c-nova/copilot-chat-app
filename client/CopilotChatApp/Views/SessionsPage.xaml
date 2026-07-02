@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ContentPage
+    x:Class="CopilotChatApp.Views.SessionsPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:services="clr-namespace:CopilotChatApp.Services"
+    Title="Sessions">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="New chat" Clicked="OnNewChatClicked" />
+    </ContentPage.ToolbarItems>
+
+    <Grid RowDefinitions="Auto,*" Padding="16">
+
+        <ActivityIndicator x:Name="LoadingIndicator" Grid.Row="0" IsRunning="False" IsVisible="False" />
+
+        <CollectionView x:Name="SessionsView"
+                        Grid.Row="1"
+                        ItemsSource="{Binding Sessions}"
+                        SelectionMode="None">
+            <CollectionView.EmptyView>
+                <Label Text="過去のセッションはまだありません。" TextColor="Gray" Margin="0,20,0,0" />
+            </CollectionView.EmptyView>
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="services:SessionSummary">
+                    <Grid Padding="0,10" ColumnDefinitions="*">
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnSessionTapped" CommandParameter="{Binding .}" />
+                        </Grid.GestureRecognizers>
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="{Binding Summary}" FontAttributes="Bold" LineBreakMode="TailTruncation" />
+                            <Label Text="{Binding DisplaySubtitle}" FontSize="12" TextColor="Gray" />
+                        </VerticalStackLayout>
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+    </Grid>
+
+</ContentPage>
