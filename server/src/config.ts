@@ -26,9 +26,23 @@ function requireEnv(name: string, fallback?: string): string {
   return value;
 }
 
+/** Minimum acceptable length for AUTH_TOKEN, to reject empty/trivial shared secrets at startup. */
+const MIN_AUTH_TOKEN_LENGTH = 16;
+
+function requireAuthToken(): string {
+  const value = requireEnv('AUTH_TOKEN');
+  if (value.trim().length < MIN_AUTH_TOKEN_LENGTH) {
+    throw new Error(
+      `AUTH_TOKEN must be at least ${MIN_AUTH_TOKEN_LENGTH} characters long (got ${value.trim().length}). ` +
+        `Set a long random secret in server/.env, e.g. via: openssl rand -hex 32`,
+    );
+  }
+  return value;
+}
+
 export const config: ServerConfig = {
   port: parseInt(process.env.PORT ?? '5219', 10),
-  authToken: requireEnv('AUTH_TOKEN'),
+  authToken: requireAuthToken(),
   copilotCommand: process.env.COPILOT_COMMAND ?? 'copilot',
   model: process.env.COPILOT_MODEL ?? '',
   workDir: process.env.WORK_DIR

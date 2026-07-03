@@ -34,13 +34,13 @@ public partial class McpServersPage : ContentPage
     async Task EnsureConnectedAsync()
     {
         if (_connected) return;
-        if (!SettingsService.IsConfigured)
+        if (!await SettingsService.IsConfiguredAsync())
         {
             await DisplayAlert("Not configured", "Please set the server URL and token in Settings first.", "OK");
             await Navigation.PopAsync();
             return;
         }
-        await _client.ConnectAsync(SettingsService.ServerUrl, SettingsService.AuthToken);
+        await _client.ConnectAsync(SettingsService.ServerUrl, await SettingsService.GetAuthTokenAsync());
         _connected = true;
     }
 

@@ -28,7 +28,7 @@
 		<MauiXamlInflator>SourceGen</MauiXamlInflator>
 
 		<!-- Display name -->
-		<ApplicationTitle>GitHub Copilot CLI/GUI</ApplicationTitle>
+		<ApplicationTitle>GitHub Copilot CLI-GUI</ApplicationTitle>
 
 		<!-- App Identifier -->
 		<ApplicationId>com.companyname.copilotchatapp</ApplicationId>
@@ -69,6 +69,7 @@
 		<PackageReference Include="Indiko.Maui.Controls.Markdown" Version="1.10.0" />
 		<PackageReference Include="Microsoft.Maui.Controls" Version="10.0.71" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+		<PackageReference Include="Plugin.Maui.Biometric" Version="0.1.0" />
 	</ItemGroup>
 
 </Project>

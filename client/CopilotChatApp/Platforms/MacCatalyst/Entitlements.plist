@@ -3,12 +3,23 @@
 <plist version="1.0">
     <!-- See https://aka.ms/maui-publish-app-store#add-entitlements for more information about adding entitlements.-->
     <dict>
-        <!-- App Sandbox must be enabled to distribute a MacCatalyst app through the Mac App Store. -->
+        <!-- App Sandbox is disabled: this app is distributed privately (not through the Mac App Store),
+             and Sandbox + an unsigned/ad-hoc local dev build was preventing SecureStorage (Keychain)
+             reads/writes from working at all on Mac Catalyst - the Auth Token entered in Settings would
+             silently fail to persist. Re-enable Sandbox + keep the keychain-access-groups entitlement if
+             this app is ever prepared for Mac App Store distribution (see PBI-013). -->
         <key>com.apple.security.app-sandbox</key>
-        <true/>
-        <!-- When App Sandbox is enabled, this value is required to open outgoing network connections. -->
+        <false/>
+        <!-- When App Sandbox is enabled, this value is required to open outgoing network connections.
+             Harmless to leave set even with Sandbox disabled. -->
         <key>com.apple.security.network.client</key>
         <true/>
+        <!-- NOTE: the keychain-access-groups entitlement was tried here to fix SecureStorage's
+             "Error adding record: MissingEntitlement", but adding ANY entitlement to an unsigned/
+             ad-hoc-signed build made macOS refuse to launch the app at all ("Launchd job spawn
+             failed" - this Mac's MDM/ConfigurationProfiles rejects entitled apps without a proper
+             provisioning profile). Reverted. The Auth Token is now stored in an app-local
+             AES-GCM-encrypted file instead of SecureStorage/Keychain - see SettingsService.cs and
+             PBI-013. -->
     </dict>
 </plist>
-

@@ -5,7 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:models="clr-namespace:CopilotChatApp.Models"
     xmlns:idk="clr-namespace:Indiko.Maui.Controls.Markdown;assembly=Indiko.Maui.Controls.Markdown"
-    Title="GitHub Copilot CLI/GUI">
+    Title="GitHub Copilot CLI-GUI">
 
     <Shell.TitleView>
         <HorizontalStackLayout Spacing="8" VerticalOptions="Center">
@@ -13,7 +13,7 @@
                    WidthRequest="26"
                    HeightRequest="26"
                    VerticalOptions="Center" />
-            <Label Text="GitHub Copilot CLI/GUI"
+            <Label Text="GitHub Copilot CLI-GUI"
                    FontSize="20"
                    FontAttributes="Bold"
                    VerticalOptions="Center"
@@ -27,84 +27,180 @@
         <ToolbarItem Text="Settings" Order="Primary" Priority="2" Clicked="OnSettingsClicked" />
     </ContentPage.ToolbarItems>
 
-    <Grid RowDefinitions="*,Auto" Padding="0">
+    <Grid>
+        <Grid RowDefinitions="*,Auto,Auto,Auto" Padding="0">
 
-        <CollectionView x:Name="MessagesView"
-                        Grid.Row="0"
-                        Margin="8"
-                        ItemsUpdatingScrollMode="KeepLastItemInView"
-                        ItemsSource="{Binding Messages}">
-            <CollectionView.ItemTemplate>
-                <DataTemplate x:DataType="models:ChatMessage">
-                    <Grid Padding="4" RowDefinitions="Auto,Auto">
-                        <Frame Padding="10,8"
-                               Grid.Row="0"
-                               CornerRadius="12"
-                               HasShadow="False"
-                               IsVisible="{Binding IsTool, Converter={StaticResource InvertedBoolConverter}}"
-                               BackgroundColor="{Binding IsUser, Converter={StaticResource BoolToBubbleColorConverter}}"
-                               HorizontalOptions="{Binding IsUser, Converter={StaticResource BoolToAlignConverter}}"
-                               MaximumWidthRequest="{Binding Source={x:Reference MessagesView}, Path=Width, Converter={StaticResource WidthToBubbleMaxWidthConverter}}">
-                            <Frame.GestureRecognizers>
-                                <TapGestureRecognizer Tapped="OnMessageTapped" />
-                            </Frame.GestureRecognizers>
-                            <VerticalStackLayout Spacing="2">
-                                <idk:MarkdownView MarkdownText="{Binding Text}" />
-                                <Label Text="✓ コピーしました"
-                                       FontSize="11"
-                                       TextColor="Gray"
-                                       IsVisible="{Binding IsCopied}" />
-                            </VerticalStackLayout>
-                        </Frame>
-                        <Label Grid.Row="1"
-                               Text="🔎 全文選択"
-                               FontSize="11"
-                               Opacity="0.55"
-                               Margin="6,1,6,0"
-                               IsVisible="{Binding IsTool, Converter={StaticResource InvertedBoolConverter}}"
-                               HorizontalOptions="{Binding IsUser, Converter={StaticResource BoolToAlignConverter}}">
-                            <Label.GestureRecognizers>
-                                <TapGestureRecognizer Tapped="OnSelectTextTapped" />
-                            </Label.GestureRecognizers>
-                        </Label>
-                        <HorizontalStackLayout Grid.Row="0"
-                                                IsVisible="{Binding IsTool}"
-                                               HorizontalOptions="Center"
-                                               Spacing="6">
-                            <ActivityIndicator IsRunning="{Binding IsRunning}"
-                                                IsVisible="{Binding IsRunning}"
-                                                Color="Gray"
-                                                WidthRequest="14"
-                                                HeightRequest="14"
-                                                VerticalOptions="Center" />
-                            <Label Text="{Binding Text}"
-                                   FontSize="12"
-                                   FontAttributes="Italic"
-                                   TextColor="Gray"
-                                   TextDecorations="Underline"
-                                   VerticalOptions="Center"
-                                   HorizontalTextAlignment="Center">
+            <CollectionView x:Name="MessagesView"
+                            Grid.Row="0"
+                            Margin="8"
+                            ItemsUpdatingScrollMode="KeepLastItemInView"
+                            ItemsSource="{Binding Messages}">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="models:ChatMessage">
+                        <Grid Padding="4" RowDefinitions="Auto,Auto">
+                            <Frame Padding="10,8"
+                                   Grid.Row="0"
+                                   CornerRadius="12"
+                                   HasShadow="False"
+                                   IsVisible="{Binding IsTool, Converter={StaticResource InvertedBoolConverter}}"
+                                   BackgroundColor="{Binding IsUser, Converter={StaticResource BoolToBubbleColorConverter}}"
+                                   HorizontalOptions="{Binding IsUser, Converter={StaticResource BoolToAlignConverter}}"
+                                   MaximumWidthRequest="{Binding Source={x:Reference MessagesView}, Path=Width, Converter={StaticResource WidthToBubbleMaxWidthConverter}}">
+                                <Frame.GestureRecognizers>
+                                    <TapGestureRecognizer Tapped="OnMessageTapped" />
+                                </Frame.GestureRecognizers>
+                                <VerticalStackLayout Spacing="2">
+                                    <CollectionView ItemsSource="{Binding Attachments}"
+                                                    IsVisible="{Binding HasAttachments}"
+                                                    HeightRequest="72"
+                                                    HorizontalOptions="Start">
+                                        <CollectionView.ItemsLayout>
+                                            <LinearItemsLayout Orientation="Horizontal" ItemSpacing="6" />
+                                        </CollectionView.ItemsLayout>
+                                        <CollectionView.ItemTemplate>
+                                            <DataTemplate x:DataType="models:PendingAttachment">
+                                                <Image Source="{Binding Preview}"
+                                                       Aspect="AspectFill"
+                                                       WidthRequest="64"
+                                                       HeightRequest="64" />
+                                            </DataTemplate>
+                                        </CollectionView.ItemTemplate>
+                                    </CollectionView>
+                                    <idk:MarkdownView MarkdownText="{Binding Text}"
+                                                       TextFontSize="{DynamicResource ChatFontSize}"
+                                                       H1Color="#1A1A1A"
+                                                       H2Color="#1A1A1A"
+                                                       H3Color="#1A1A1A"
+                                                       H4Color="#1A1A1A"
+                                                       H5Color="#1A1A1A"
+                                                       H6Color="#1A1A1A" />
+                                    <Label Text="✓ コピーしました"
+                                           FontSize="11"
+                                           TextColor="Gray"
+                                           IsVisible="{Binding IsCopied}" />
+                                </VerticalStackLayout>
+                            </Frame>
+                            <Label Grid.Row="1"
+                                   Text="🔎 全文選択"
+                                   FontSize="11"
+                                   Opacity="0.55"
+                                   Margin="6,1,6,0"
+                                   IsVisible="{Binding IsTool, Converter={StaticResource InvertedBoolConverter}}"
+                                   HorizontalOptions="{Binding IsUser, Converter={StaticResource BoolToAlignConverter}}">
                                 <Label.GestureRecognizers>
-                                    <TapGestureRecognizer Tapped="OnToolTapped" />
+                                    <TapGestureRecognizer Tapped="OnSelectTextTapped" />
                                 </Label.GestureRecognizers>
                             </Label>
-                        </HorizontalStackLayout>
-                    </Grid>
-                </DataTemplate>
-            </CollectionView.ItemTemplate>
-        </CollectionView>
+                            <HorizontalStackLayout Grid.Row="0"
+                                                    IsVisible="{Binding IsTool}"
+                                                   HorizontalOptions="Center"
+                                                   Spacing="6">
+                                <ActivityIndicator IsRunning="{Binding IsRunning}"
+                                                    IsVisible="{Binding IsRunning}"
+                                                    Color="Gray"
+                                                    WidthRequest="14"
+                                                    HeightRequest="14"
+                                                    VerticalOptions="Center" />
+                                <Label Text="{Binding Text}"
+                                       FontSize="12"
+                                       FontAttributes="Italic"
+                                       TextColor="Gray"
+                                       TextDecorations="Underline"
+                                       VerticalOptions="Center"
+                                       HorizontalTextAlignment="Center">
+                                    <Label.GestureRecognizers>
+                                        <TapGestureRecognizer Tapped="OnToolTapped" />
+                                    </Label.GestureRecognizers>
+                                </Label>
+                            </HorizontalStackLayout>
+                        </Grid>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
 
-        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Padding="8" ColumnSpacing="8">
-            <Editor x:Name="InputEditor"
-                    Grid.Column="0"
-                    Placeholder="Message Copilot..."
-                    AutoSize="TextChanges"
-                    MaxLength="8000" />
-            <Button x:Name="SendButton"
-                    Grid.Column="1"
-                    Text="Send"
-                    Clicked="OnSendClicked"
-                    VerticalOptions="End" />
+            <!-- Sending status indicator: shown from the moment Send is tapped until the first
+                 response content arrives, so the user isn't left staring at a blank screen
+                 wondering whether the app is hung (see PBI-015). -->
+            <HorizontalStackLayout Grid.Row="1"
+                                   IsVisible="{Binding IsWaitingForResponse}"
+                                   Spacing="6"
+                                   Margin="12,0,12,4">
+                <ActivityIndicator IsRunning="{Binding IsWaitingForResponse}"
+                                   Color="Gray"
+                                   WidthRequest="14"
+                                   HeightRequest="14"
+                                   VerticalOptions="Center" />
+                <Label Text="Copilot is working…"
+                       FontSize="12"
+                       FontAttributes="Italic"
+                       TextColor="Gray"
+                       VerticalOptions="Center" />
+            </HorizontalStackLayout>
+
+            <!-- Pending attachment strip: images pasted via the 📎 button, staged for the next
+                 message and removable individually before Send (PBI-019). -->
+            <CollectionView Grid.Row="2"
+                            ItemsSource="{Binding PendingAttachments}"
+                            IsVisible="{Binding HasPendingAttachments}"
+                            HeightRequest="76"
+                            Margin="8,4,8,0">
+                <CollectionView.ItemsLayout>
+                    <LinearItemsLayout Orientation="Horizontal" ItemSpacing="6" />
+                </CollectionView.ItemsLayout>
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="models:PendingAttachment">
+                        <Grid WidthRequest="64" HeightRequest="64">
+                            <Image Source="{Binding Preview}" Aspect="AspectFill" WidthRequest="64" HeightRequest="64" />
+                            <Label Text="✕"
+                                   FontSize="12"
+                                   TextColor="White"
+                                   BackgroundColor="#88000000"
+                                   HorizontalOptions="End"
+                                   VerticalOptions="Start"
+                                   WidthRequest="18"
+                                   HeightRequest="18"
+                                   HorizontalTextAlignment="Center">
+                                <Label.GestureRecognizers>
+                                    <TapGestureRecognizer Tapped="OnRemoveAttachmentTapped" />
+                                </Label.GestureRecognizers>
+                            </Label>
+                        </Grid>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+
+            <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" Padding="8" ColumnSpacing="8">
+                <Button Grid.Column="0"
+                        Text="📎"
+                        Clicked="OnPasteImageClicked"
+                        VerticalOptions="End" />
+                <Editor x:Name="InputEditor"
+                        Grid.Column="1"
+                        Text="{Binding InputText}"
+                        FontSize="{DynamicResource ChatFontSize}"
+                        Placeholder="Message Copilot..."
+                        AutoSize="TextChanges"
+                        MaxLength="8000" />
+                <Button x:Name="SendButton"
+                        Grid.Column="2"
+                        Text="Send"
+                        Command="{Binding SendCommand}"
+                        VerticalOptions="End" />
+            </Grid>
+        </Grid>
+
+        <!-- Biometric lock overlay (PBI-009): shown while the SecureStorage-held auth token is gated
+             behind Face ID / Touch ID / Windows Hello / device passcode. Hidden by default; only shown
+             when EnsureUnlockedAsync() fails or the app resumes from background. -->
+        <Grid x:Name="LockOverlay"
+              IsVisible="{Binding IsLocked}"
+              BackgroundColor="{AppThemeBinding Light=#E6FFFFFF, Dark=#E61A1A1A}">
+            <VerticalStackLayout HorizontalOptions="Center" VerticalOptions="Center" Spacing="16">
+                <Label Text="🔒" FontSize="48" HorizontalOptions="Center" />
+                <Label Text="Locked" FontSize="18" FontAttributes="Bold" HorizontalOptions="Center" />
+                <Label Text="Authenticate to continue" FontSize="13" Opacity="0.7" HorizontalOptions="Center" />
+                <Button Text="Unlock" Command="{Binding UnlockCommand}" HorizontalOptions="Center" />
+            </VerticalStackLayout>
         </Grid>
     </Grid>
 

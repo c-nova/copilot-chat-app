@@ -18,7 +18,22 @@
             <Label FontSize="12" TextColor="Gray"
                    Text="Must match AUTH_TOKEN configured in the server's .env file." />
 
-            <Button Text="Save" Clicked="OnSaveClicked" Margin="0,20,0,0" />
+            <Label Text="Chat Font Size" FontAttributes="Bold" Margin="0,12,0,0" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <Slider x:Name="FontSizeSlider"
+                        Grid.Column="0"
+                        Minimum="12" Maximum="28"
+                        ValueChanged="OnFontSizeChanged" />
+                <Label x:Name="FontSizeLabel"
+                       Grid.Column="1"
+                       WidthRequest="36"
+                       VerticalOptions="Center"
+                       HorizontalTextAlignment="End" />
+            </Grid>
+            <Label Text="Sample chat text" FontSize="{DynamicResource ChatFontSize}" />
+
+            <Button x:Name="SaveButton" Text="Save" Clicked="OnSaveClicked" Margin="0,20,0,0" />
+            <ActivityIndicator x:Name="ConnectingIndicator" IsVisible="False" IsRunning="False" Margin="0,4,0,0" />
             <Button Text="Manage MCP Servers" Clicked="OnMcpServersClicked" Margin="0,8,0,0" />
             <Button Text="Start New Conversation" Clicked="OnNewConversationClicked" BackgroundColor="Transparent" TextColor="Red" />
 

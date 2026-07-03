@@ -1,39 +1,52 @@
-using System.Collections.ObjectModel;
-using System.Text;
 using CopilotChatApp.Models;
-using CopilotChatApp.Services;
+using CopilotChatApp.ViewModels;
 using CopilotChatApp.Views;
 
 namespace CopilotChatApp;
 
 public partial class MainPage : ContentPage
 {
-    readonly ChatClientService _chatClient = new();
-    ChatMessage? _pendingAssistantMessage;
-    readonly StringBuilder _pendingAssistantText = new();
-    readonly Dictionary<string, Queue<ChatMessage>> _pendingToolMessages = new();
-    bool _sending;
-
-    public ObservableCollection<ChatMessage> Messages { get; } = new();
+    readonly ChatViewModel _viewModel = new();
 
     public MainPage()
     {
         InitializeComponent();
-        BindingContext = this;
+        BindingContext = _viewModel;
 
-        _chatClient.OnDelta += text => MainThread.BeginInvokeOnMainThread(() => AppendAssistantDelta(text));
-        _chatClient.OnFinal += text => MainThread.BeginInvokeOnMainThread(() => FinalizeAssistantMessage(text));
-        _chatClient.OnError += message => MainThread.BeginInvokeOnMainThread(() => ShowError(message));
-        _chatClient.OnToolEvent += args => MainThread.BeginInvokeOnMainThread(() => HandleToolEvent(args));
-        Messages.CollectionChanged += (_, e) =>
+        _viewModel.Messages.CollectionChanged += (_, e) =>
         {
             if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add)
             {
                 ScrollToLatest();
+                // Also scroll on every subsequent change to this message (e.g. each streamed delta
+                // appended to Text, or IsRunning flipping when a tool call completes) - otherwise the
+                // view only auto-scrolls once per new bubble and falls behind while a long streamed
+                // response or tool call is still growing.
+                if (e.NewItems is not null)
+                {
+                    foreach (ChatMessage msg in e.NewItems)
+                    {
+                        msg.PropertyChanged += (_, __) => ScrollToLatest();
+                    }
+                }
             }
         };
 
+#if WINDOWS
         SetUpSubmitShortcut();
+#elif MACCATALYST
+        // On Mac Catalyst, MenuBarItems added before the page is attached to its native window
+        // don't make it into the system menu bar (the menu bar is built once, early). Loaded fires
+        // once the page is actually in the visual tree, which is late enough for the menu bar item
+        // to show up. Guard against Loaded firing more than once (e.g. re-navigation).
+        bool submitShortcutInstalled = false;
+        Loaded += (_, _) =>
+        {
+            if (submitShortcutInstalled) return;
+            submitShortcutInstalled = true;
+            SetUpSubmitShortcut();
+        };
+#endif
     }
 
     /// <summary>
@@ -43,12 +56,12 @@ public partial class MainPage : ContentPage
     /// </summary>
     void ScrollToLatest()
     {
-        if (Messages.Count == 0) return;
+        if (_viewModel.Messages.Count == 0) return;
         MainThread.BeginInvokeOnMainThread(() =>
         {
             try
             {
-                MessagesView.ScrollTo(Messages.Count - 1, position: ScrollToPosition.End, animate: false);
+                MessagesView.ScrollTo(_viewModel.Messages.Count - 1, position: ScrollToPosition.End, animate: false);
             }
             catch
             {
@@ -59,15 +72,14 @@ public partial class MainPage : ContentPage
 
     void SetUpSubmitShortcut()
     {
-        // Ctrl+Enter submits the message. Implemented via the Windows platform view since MAUI
-        // has no cross-platform key-accelerator API for Editor; Mac/iOS keep default Editor behavior
-        // (multi-line input, tap Send to submit).
+        // Ctrl+Enter (Windows) / Cmd+Enter (Mac Catalyst) submits the message, since Editor is
+        // multi-line and a plain Enter just inserts a newline.
 #if WINDOWS
         InputEditor.HandlerChanged += (_, _) =>
         {
             if (InputEditor.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.TextBox textBox)
             {
-                textBox.PreviewKeyDown += async (_, e) =>
+                textBox.PreviewKeyDown += (_, e) =>
                 {
                     var ctrlDown = Microsoft.UI.Input.InputKeyboardSource
                         .GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
@@ -75,147 +87,37 @@ public partial class MainPage : ContentPage
                     if (ctrlDown && e.Key == Windows.System.VirtualKey.Enter)
                     {
                         e.Handled = true;
-                        await SendCurrentInputAsync();
+                        _viewModel.SendCommand.Execute(null);
                     }
                 };
             }
         };
+#elif MACCATALYST
+        // MAUI's KeyboardAccelerator API only attaches to MenuFlyoutItem/menu bar items (there's no
+        // cross-platform key-accelerator API for arbitrary controls like Editor), so Cmd+Enter is
+        // wired up as a hidden menu bar command instead. This adds a small "Message" menu to the
+        // Mac menu bar with a single "Send" item - macOS users are used to scanning the menu bar for
+        // available shortcuts, so this is a natural (if slightly unusual for this app) place for it.
+        var sendMenuItem = new MenuFlyoutItem
+        {
+            Text = "Send",
+            Command = _viewModel.SendCommand
+        };
+        sendMenuItem.KeyboardAccelerators.Add(new KeyboardAccelerator
+        {
+            Modifiers = KeyboardAcceleratorModifiers.Cmd,
+            Key = "\r"
+        });
+        var messageMenu = new MenuBarItem { Text = "Message" };
+        messageMenu.Add(sendMenuItem);
+        MenuBarItems.Add(messageMenu);
 #endif
     }
 
-    protected override void OnAppearing()
+    protected override async void OnAppearing()
     {
         base.OnAppearing();
-        if (!SettingsService.IsConfigured)
-        {
-            Messages.Add(new ChatMessage
-            {
-                Role = ChatRole.System,
-                Text = "Server not configured yet. Tap Settings to enter the server URL and token."
-            });
-        }
-    }
-
-    async void OnSendClicked(object? sender, EventArgs e) => await SendCurrentInputAsync();
-
-    async Task SendCurrentInputAsync()
-    {
-        var text = InputEditor.Text?.Trim();
-        if (string.IsNullOrEmpty(text) || _sending) return;
-
-        if (!SettingsService.IsConfigured)
-        {
-            await DisplayAlert("Not configured", "Please set the server URL and token in Settings first.", "OK");
-            return;
-        }
-
-        _sending = true;
-        SendButton.IsEnabled = false;
-        InputEditor.Text = string.Empty;
-
-        Messages.Add(new ChatMessage { Role = ChatRole.User, Text = text });
-
-        try
-        {
-            if (!_chatClient.IsConnected)
-            {
-                await _chatClient.ConnectAsync(SettingsService.ServerUrl, SettingsService.AuthToken);
-            }
-            await _chatClient.SendChatAsync(SettingsService.ConversationId, text);
-        }
-        catch (Exception ex)
-        {
-            ShowError($"Connection failed: {ex.Message}");
-            _sending = false;
-            SendButton.IsEnabled = true;
-        }
-    }
-
-    void AppendAssistantDelta(string delta)
-    {
-        if (_pendingAssistantMessage is null)
-        {
-            _pendingAssistantText.Clear();
-            _pendingAssistantMessage = new ChatMessage { Role = ChatRole.Assistant, Text = string.Empty };
-            Messages.Add(_pendingAssistantMessage);
-        }
-        _pendingAssistantText.Append(delta);
-        _pendingAssistantMessage.Text = _pendingAssistantText.ToString();
-        ScrollToLatest();
-    }
-
-    void FinalizeAssistantMessage(string finalText)
-    {
-        if (_pendingAssistantMessage is null)
-        {
-            Messages.Add(new ChatMessage { Role = ChatRole.Assistant, Text = finalText });
-        }
-        else
-        {
-            _pendingAssistantMessage.Text = finalText;
-        }
-        _pendingAssistantMessage = null;
-        _sending = false;
-        SendButton.IsEnabled = true;
-    }
-
-    void ShowError(string message)
-    {
-        Messages.Add(new ChatMessage { Role = ChatRole.System, Text = $"⚠️ {message}" });
-        _pendingAssistantMessage = null;
-        _sending = false;
-        SendButton.IsEnabled = true;
-    }
-
-    void HandleToolEvent(ToolEventArgs args)
-    {
-        // If an assistant bubble was started (e.g. streaming reasoning text) before this tool call,
-        // seal it in place so the *next* delta/final creates a fresh bubble positioned after the
-        // tool rows - otherwise the eventual final answer would end up visually above tool activity
-        // that happened after the bubble was first created.
-        if (args.Status == "start" && _pendingAssistantMessage is not null)
-        {
-            if (string.IsNullOrWhiteSpace(_pendingAssistantMessage.Text))
-            {
-                Messages.Remove(_pendingAssistantMessage);
-            }
-            _pendingAssistantMessage = null;
-            _pendingAssistantText.Clear();
-        }
-
-        if (args.Status == "start")
-        {
-            var label = string.IsNullOrEmpty(args.Summary)
-                ? $"{args.Name}"
-                : $"{args.Name} — {args.Summary}";
-            var detail = $"🔧 {args.Name}\n\n{args.Detail ?? "(no arguments)"}";
-            var msg = new ChatMessage { Role = ChatRole.Tool, Text = label, ToolDetail = detail, IsRunning = true };
-            Messages.Add(msg);
-
-            if (!_pendingToolMessages.TryGetValue(args.Name, out var queue))
-            {
-                queue = new Queue<ChatMessage>();
-                _pendingToolMessages[args.Name] = queue;
-            }
-            queue.Enqueue(msg);
-        }
-        else
-        {
-            var icon = args.Success == false ? "❌" : "✅";
-            var statusLine = args.Success == false ? "Status: ❌ Failed" : "Status: ✅ Completed";
-            if (_pendingToolMessages.TryGetValue(args.Name, out var queue) && queue.Count > 0)
-            {
-                var msg = queue.Dequeue();
-                msg.IsRunning = false;
-                msg.Text = $"{icon} {args.Name}";
-                msg.ToolDetail = $"{msg.ToolDetail}\n\n{statusLine}";
-            }
-            else
-            {
-                var detail = $"🔧 {args.Name}\n\n{args.Detail ?? "(no arguments)"}\n\n{statusLine}";
-                Messages.Add(new ChatMessage { Role = ChatRole.Tool, Text = $"{icon} {args.Name}", ToolDetail = detail, IsRunning = false });
-            }
-        }
+        await _viewModel.InitializeAsync();
     }
 
     async void OnToolTapped(object? sender, TappedEventArgs e)
@@ -249,46 +151,50 @@ public partial class MainPage : ContentPage
     {
         var confirm = await DisplayAlert("New chat", "Start a new conversation? History will be cleared locally and on the server session.", "Yes", "Cancel");
         if (!confirm) return;
-        await StartNewChatAsync();
-    }
-
-    async Task StartNewChatAsync()
-    {
-        SettingsService.ResetConversation();
-        Messages.Clear();
-        await _chatClient.DisconnectAsync();
+        await _viewModel.StartNewChatAsync();
     }
 
     async void OnSessionsClicked(object? sender, EventArgs e)
     {
-        await Navigation.PushAsync(new SessionsPage(ApplyResumedSession, () => _ = StartNewChatAsync()));
-    }
-
-    void ApplyResumedSession(SessionSummary session, List<SessionTurn> turns)
-    {
-        SettingsService.SetConversation(session.Id);
-        Messages.Clear();
-        _pendingAssistantMessage = null;
-        _pendingAssistantText.Clear();
-        _pendingToolMessages.Clear();
-
-        foreach (var turn in turns)
-        {
-            if (!string.IsNullOrWhiteSpace(turn.UserMessage))
-            {
-                Messages.Add(new ChatMessage { Role = ChatRole.User, Text = turn.UserMessage });
-            }
-            if (!string.IsNullOrWhiteSpace(turn.AssistantResponse))
-            {
-                Messages.Add(new ChatMessage { Role = ChatRole.Assistant, Text = turn.AssistantResponse });
-            }
-        }
-
-        _ = _chatClient.DisconnectAsync();
+        await Navigation.PushAsync(new SessionsPage(_viewModel.ChatClient, _viewModel.ApplyResumedSession, () => _ = _viewModel.StartNewChatAsync()));
     }
 
     async void OnSettingsClicked(object? sender, EventArgs e)
     {
-        await Navigation.PushAsync(new SettingsPage());
+        await Navigation.PushAsync(new SettingsPage(_viewModel.ChatClient));
+    }
+
+    /// <summary>
+    /// Reads an image off the system clipboard and stages it as a pending attachment (PBI-019).
+    /// MAUI's cross-platform Clipboard API only supports text, so this drops down to UIPasteboard
+    /// directly on iOS/Mac Catalyst (both are UIKit under the hood); other platforms don't have an
+    /// image-clipboard path yet. On iOS, reading a pasteboard populated by another app may trigger
+    /// the system's "Allow Paste" permission prompt - that's expected, not an error.
+    /// </summary>
+    async void OnPasteImageClicked(object? sender, EventArgs e)
+    {
+#if MACCATALYST || IOS
+        var pasteboard = UIKit.UIPasteboard.General;
+        if (!pasteboard.HasImages || pasteboard.Image is not UIKit.UIImage image)
+        {
+            await DisplayAlert("No image", "The clipboard doesn't contain an image.", "OK");
+            return;
+        }
+        using var pngData = image.AsPNG();
+        if (pngData is null) return;
+
+        var bytes = new byte[pngData.Length];
+        System.Runtime.InteropServices.Marshal.Copy(pngData.Bytes, bytes, 0, (int)pngData.Length);
+        _viewModel.AddPastedImage(bytes, "image/png");
+#else
+        await DisplayAlert("Not supported", "Image paste isn't available on this platform yet.", "OK");
+#endif
+    }
+
+    void OnRemoveAttachmentTapped(object? sender, TappedEventArgs e)
+    {
+        if (sender is not Element el || el.BindingContext is not Models.PendingAttachment attachment) return;
+        _viewModel.RemovePendingAttachment(attachment);
     }
 }
+

@@ -1,9 +1,21 @@
+/** An inline file (image or document) attached to a chat turn, sent base64-encoded over the wire. */
+export interface AttachmentPayload {
+  /** MIME type, e.g. "image/png" - used to pick a file extension for the temp file passed to the CLI. */
+  mimeType: string;
+  /** Base64-encoded file bytes. */
+  data: string;
+  /** Optional original file name (used for its extension if present). */
+  fileName?: string;
+}
+
 /** Messages sent from client -> server over the WebSocket. */
 export interface ClientChatMessage {
   type: 'chat';
   /** Client-generated id identifying a conversation thread. */
   conversationId: string;
   text: string;
+  /** Images/files pasted or attached alongside the prompt (PBI-019). */
+  attachments?: AttachmentPayload[];
 }
 
 export interface ClientMcpListMessage {

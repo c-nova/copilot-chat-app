@@ -36,6 +36,11 @@ public class ChatMessage : INotifyPropertyChanged
     /// <summary>Full tool call arguments/status text shown when a tool-activity bubble is tapped.</summary>
     public string? ToolDetail { get; set; }
 
+    /// <summary>Images pasted alongside this message's text (PBI-019), shown as thumbnails in the bubble.</summary>
+    public List<PendingAttachment>? Attachments { get; set; }
+
+    public bool HasAttachments => Attachments is { Count: > 0 };
+
     bool _isRunning;
 
     /// <summary>True while a tool call is in progress (drives the spinner next to the tool row).</summary>

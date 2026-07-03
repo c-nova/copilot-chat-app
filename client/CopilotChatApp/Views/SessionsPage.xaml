@@ -12,7 +12,15 @@
 
     <Grid RowDefinitions="Auto,*" Padding="16">
 
-        <ActivityIndicator x:Name="LoadingIndicator" Grid.Row="0" IsRunning="False" IsVisible="False" />
+        <HorizontalStackLayout Grid.Row="0" Spacing="8">
+            <ActivityIndicator x:Name="LoadingIndicator" IsRunning="False" IsVisible="False" />
+            <Label x:Name="LoadingLabel"
+                   Text="Connecting to server… this can take up to 30s while waiting for network permission"
+                   IsVisible="False"
+                   VerticalOptions="Center"
+                   FontSize="13"
+                   TextColor="Gray" />
+        </HorizontalStackLayout>
 
         <CollectionView x:Name="SessionsView"
                         Grid.Row="1"

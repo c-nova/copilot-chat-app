@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import { IncomingMessage } from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { config } from './config';
@@ -12,6 +13,19 @@ function send(ws: WebSocket, msg: ServerMessage) {
   }
 }
 
+/** Constant-time string comparison to avoid leaking token length/content via response-timing side channels. */
+export function timingSafeEqualString(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    // Still run timingSafeEqual against a same-length buffer so the "different length" case
+    // doesn't short-circuit noticeably faster than the "same length, different content" case.
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 function isAuthorized(req: IncomingMessage): boolean {
   const header = req.headers['authorization'];
   if (typeof header !== 'string') {
@@ -24,11 +38,9 @@ function isAuthorized(req: IncomingMessage): boolean {
     return false;
   }
   const provided = match[1];
-  const ok = provided === config.authToken;
+  const ok = timingSafeEqualString(provided, config.authToken);
   if (!ok) {
-    console.warn(
-      `[auth] rejected: token mismatch (received ${provided.length} chars, expected ${config.authToken.length} chars)`,
-    );
+    console.warn('[auth] rejected: token mismatch');
   }
   return ok;
 }
@@ -48,6 +60,17 @@ export function createChatServer(): WebSocketServer {
   const conversationLocks = new Map<string, Promise<void>>();
 
   wss.on('connection', (ws) => {
+    // Tracks which conversationIds this socket has driven turns for, so we can clean up the
+    // shared maps when the socket disconnects instead of letting them grow forever.
+    const conversationIdsSeenOnThisSocket = new Set<string>();
+
+    ws.on('close', () => {
+      for (const id of conversationIdsSeenOnThisSocket) {
+        conversationLocks.delete(id);
+        conversationSessions.delete(id);
+      }
+    });
+
     ws.on('message', async (raw) => {
       let msg: ClientMessage;
       try {
@@ -120,7 +143,8 @@ export function createChatServer(): WebSocketServer {
         return;
       }
 
-      const { conversationId, text } = msg;
+      const { conversationId, text, attachments } = msg;
+      conversationIdsSeenOnThisSocket.add(conversationId);
       const prior = conversationLocks.get(conversationId) ?? Promise.resolve();
       const turn = prior
         .catch(() => undefined)
@@ -151,6 +175,7 @@ export function createChatServer(): WebSocketServer {
                   success: toolEvent.success,
                 });
               },
+              attachments,
             );
             send(ws, { type: 'final', conversationId, text: result.finalText });
           } catch (err: any) {

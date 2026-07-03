@@ -1,4 +1,8 @@
 import spawn from 'cross-spawn';
+import * as crypto from 'crypto';
+import * as fs from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
 import { config } from './config';
 
 export type DeltaHandler = (text: string) => void;
@@ -19,36 +23,109 @@ export interface TurnResult {
   sessionId: string;
 }
 
+/** An inline attachment to write to a temp file and pass to the CLI via --attachment (PBI-019). */
+export interface AttachmentInput {
+  mimeType: string;
+  /** Base64-encoded file bytes. */
+  data: string;
+  fileName?: string;
+}
+
+const MIME_EXTENSIONS: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+  'image/heic': '.heic',
+  'application/pdf': '.pdf',
+};
+
+function extensionFor(att: AttachmentInput): string {
+  if (att.fileName) {
+    const ext = path.extname(att.fileName);
+    if (ext) return ext;
+  }
+  return MIME_EXTENSIONS[att.mimeType] ?? '';
+}
+
+/**
+ * Writes each attachment's base64 payload to a private temp file, since the CLI's --attachment
+ * flag only accepts filesystem paths (there's no way to hand it in-memory bytes directly - see
+ * PBI-019 design notes). Files land in the OS temp dir (already a per-user, non-world-readable
+ * location) and are additionally chmod'd 0600 for defense in depth.
+ */
+async function writeTempAttachments(attachments: AttachmentInput[]): Promise<string[]> {
+  const paths: string[] = [];
+  for (const att of attachments) {
+    const tmpPath = path.join(os.tmpdir(), `copilot-attach-${crypto.randomUUID()}${extensionFor(att)}`);
+    const buffer = Buffer.from(att.data, 'base64');
+    await fs.writeFile(tmpPath, buffer, { mode: 0o600 });
+    paths.push(tmpPath);
+  }
+  return paths;
+}
+
+/** Best-effort cleanup - a leftover temp file isn't worth failing the turn over. */
+async function cleanupTempFiles(paths: string[]): Promise<void> {
+  await Promise.all(
+    paths.map((p) =>
+      fs.unlink(p).catch((err) => {
+        console.warn(`[copilotRunner] failed to remove temp attachment ${p}:`, err?.message ?? err);
+      }),
+    ),
+  );
+}
+
+/** Key names (case-insensitive) whose values look like secrets and shouldn't be shown in the UI, e.g. when a tool call carries an MCP server's auth header or API key in its arguments. */
+const SENSITIVE_KEY_PATTERN = /token|password|passwd|secret|api[-_]?key|authorization|auth[-_]?header|cookie|credential/i;
+const REDACTED = '***REDACTED***';
+
+/** Recursively replaces values whose key name looks sensitive with a redaction marker. */
+function redactSensitiveValues(value: any): any {
+  if (Array.isArray(value)) {
+    return value.map(redactSensitiveValues);
+  }
+  if (value && typeof value === 'object') {
+    const result: Record<string, any> = {};
+    for (const [key, v] of Object.entries(value)) {
+      result[key] = SENSITIVE_KEY_PATTERN.test(key) ? REDACTED : redactSensitiveValues(v);
+    }
+    return result;
+  }
+  return value;
+}
+
 /** Picks a short, human-readable one-line summary out of a tool call's arguments object. */
-function summarizeToolArguments(args: any): string | undefined {
+export function summarizeToolArguments(args: any): string | undefined {
   if (!args || typeof args !== 'object') return undefined;
 
   const preferredKeys = ['description', 'command', 'question', 'query', 'path', 'url', 'text', 'message'];
   for (const key of preferredKeys) {
     const value = args[key];
-    if (typeof value === 'string' && value.trim()) {
+    if (typeof value === 'string' && value.trim() && !SENSITIVE_KEY_PATTERN.test(key)) {
       return truncate(value);
     }
   }
-  for (const value of Object.values(args)) {
-    if (typeof value === 'string' && value.trim()) {
+  for (const [key, value] of Object.entries(args)) {
+    if (typeof value === 'string' && value.trim() && !SENSITIVE_KEY_PATTERN.test(key)) {
       return truncate(value);
     }
   }
   return undefined;
 }
 
-function truncate(text: string, max = 140): string {
+export function truncate(text: string, max = 140): string {
   const oneLine = text.replace(/\s+/g, ' ').trim();
   return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine;
 }
 
 /** Formats a tool call's full arguments as readable multi-line text for the "tap for detail" view. */
-function formatToolDetail(args: any, max = 4000): string | undefined {
+export function formatToolDetail(args: any, max = 4000): string | undefined {
   if (!args || typeof args !== 'object' || Object.keys(args).length === 0) return undefined;
   let text: string;
   try {
-    text = JSON.stringify(args, null, 2);
+    text = JSON.stringify(redactSensitiveValues(args), null, 2);
   } catch {
     return undefined;
   }
@@ -63,11 +140,29 @@ function formatToolDetail(args: any, max = 4000): string | undefined {
  * The CLI operates inside `config.workDir` (via `-C`), and `--allow-all-tools/paths/urls`
  * pre-approves every action since there's no interactive prompt to confirm from in this mode.
  */
-export function runCopilotTurn(
+export async function runCopilotTurn(
   sessionId: string,
   message: string,
   onDelta: DeltaHandler,
   onToolEvent: ToolEventHandler,
+  attachments?: AttachmentInput[],
+): Promise<TurnResult> {
+  const tempFiles = attachments && attachments.length > 0 ? await writeTempAttachments(attachments) : [];
+  try {
+    return await runCopilotTurnCore(sessionId, message, onDelta, onToolEvent, tempFiles);
+  } finally {
+    if (tempFiles.length > 0) {
+      await cleanupTempFiles(tempFiles);
+    }
+  }
+}
+
+function runCopilotTurnCore(
+  sessionId: string,
+  message: string,
+  onDelta: DeltaHandler,
+  onToolEvent: ToolEventHandler,
+  attachmentPaths: string[],
 ): Promise<TurnResult> {
   return new Promise((resolve, reject) => {
     const args = [
@@ -81,6 +176,9 @@ export function runCopilotTurn(
       `--session-id=${sessionId}`,
       '--no-color',
     ];
+    for (const attachmentPath of attachmentPaths) {
+      args.push('--attachment', attachmentPath);
+    }
     if (config.model) {
       args.push('--model', config.model);
     }

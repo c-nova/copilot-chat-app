@@ -10,6 +10,7 @@ public class ChatClientService : IAsyncDisposable
     ClientWebSocket? _socket;
     CancellationTokenSource? _receiveLoopCts;
     Task? _receiveLoopTask;
+    CancellationTokenSource? _backgroundConnectCts;
     readonly Dictionary<string, TaskCompletionSource<McpResult>> _pendingMcpRequests = new();
     readonly Dictionary<string, TaskCompletionSource<SessionsListResult>> _pendingSessionsListRequests = new();
     readonly Dictionary<string, TaskCompletionSource<SessionsHistoryResult>> _pendingSessionsHistoryRequests = new();
@@ -34,8 +35,85 @@ public class ChatClientService : IAsyncDisposable
         _socket = socket;
         OnConnectionChanged?.Invoke(true);
 
+        // A successful connection - whether from a foreground ConnectWithRetryAsync call or from the
+        // background retry loop itself - means any pending background retry loop is no longer needed.
+        _backgroundConnectCts?.Cancel();
+        _backgroundConnectCts = null;
+
         _receiveLoopCts = new CancellationTokenSource();
         _receiveLoopTask = Task.Run(() => ReceiveLoopAsync(socket, _receiveLoopCts.Token));
+    }
+
+    /// <summary>
+    /// Connects with retries on failure. Even with LocalNetworkAccessTrigger firing the
+    /// local-network-access permission prompt (NSLocalNetworkUsageDescription) at app startup, the
+    /// user might not notice and answer it for a while - while that system dialog is up, the socket
+    /// connect fails outright even though it would succeed the moment they tap Allow. In practice
+    /// this can take the user several seconds to notice, so this retries for up to ~30s (15 attempts,
+    /// 2s apart) rather than giving up after just a few seconds and surfacing a scary error while
+    /// they're still looking at the permission prompt.
+    ///
+    /// Even after tapping Allow, iOS has been observed to take well over 30s before it actually lets
+    /// traffic through (a known local-network-privacy quirk - the grant doesn't seem to take effect
+    /// immediately at the kernel/network-extension level). So if every bounded attempt here still
+    /// fails, this hands off to a long-running background retry loop (see
+    /// EnsureConnectingInBackground) before giving up and surfacing an error, so that the *next*
+    /// time the user checks (e.g. re-opening Sessions), the connection is already up instead of
+    /// needing yet another manual Retry.
+    /// </summary>
+    public async Task ConnectWithRetryAsync(string serverUrl, string authToken, int maxAttempts = 15, CancellationToken ct = default)
+    {
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                await ConnectAsync(serverUrl, authToken, ct);
+                return;
+            }
+            catch when (attempt < maxAttempts)
+            {
+                await Task.Delay(2000, ct);
+            }
+            catch
+            {
+                EnsureConnectingInBackground(serverUrl, authToken);
+                throw;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Starts a long-running, low-frequency retry loop if one isn't already running and we're not
+    /// already connected. Unlike ConnectWithRetryAsync, this doesn't block the caller and isn't
+    /// bounded to a UI-friendly ~30s - it keeps trying for up to ~10 minutes (200 attempts, 3s
+    /// apart) to ride out however long iOS actually takes to start allowing local-network traffic
+    /// after the user grants the permission prompt. Safe to call repeatedly/redundantly.
+    /// </summary>
+    public void EnsureConnectingInBackground(string serverUrl, string authToken)
+    {
+        if (IsConnected) return;
+        if (_backgroundConnectCts is { IsCancellationRequested: false }) return;
+
+        var cts = new CancellationTokenSource();
+        _backgroundConnectCts = cts;
+        var ct = cts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            for (var attempt = 0; attempt < 200 && !ct.IsCancellationRequested; attempt++)
+            {
+                try
+                {
+                    await ConnectAsync(serverUrl, authToken, ct);
+                    return;
+                }
+                catch
+                {
+                    try { await Task.Delay(3000, ct); }
+                    catch { return; }
+                }
+            }
+        }, ct);
     }
 
     public async Task<List<McpServerSummary>> ListMcpServersAsync(CancellationToken ct = default)
@@ -104,6 +182,17 @@ public class ChatClientService : IAsyncDisposable
         return result;
     }
 
+    /// <summary>
+    /// On iOS, a socket can look "Open" (<see cref="IsConnected"/> stays true) even though the OS is
+    /// silently dropping its traffic while the local-network-access permission prompt is unanswered
+    /// or was just answered - the receive loop doesn't always notice right away, so a request sent
+    /// over that zombie socket can otherwise hang forever with no error and no timeout. Every
+    /// request/response call bounds itself with a timeout and, on expiry, force-disconnects so the
+    /// *next* attempt (whether automatic or a user-tapped Retry) gets a genuinely fresh connection
+    /// via ConnectWithRetryAsync instead of reusing the same dead socket.
+    /// </summary>
+    static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(15);
+
     public async Task<List<SessionSummary>> ListSessionsAsync(CancellationToken ct = default)
     {
         if (_socket is null || _socket.State != WebSocketState.Open)
@@ -115,17 +204,23 @@ public class ChatClientService : IAsyncDisposable
         var tcs = new TaskCompletionSource<SessionsListResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pendingSessionsListRequests[requestId] = tcs;
 
-        var payload = JsonSerializer.Serialize(new OutgoingSessionsListMessage { RequestId = requestId });
-        var bytes = Encoding.UTF8.GetBytes(payload);
-        await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
-
-        using var reg = ct.Register(() => tcs.TrySetCanceled());
-        var result = await tcs.Task;
-        if (!result.Ok)
+        try
         {
-            throw new InvalidOperationException(result.Error ?? "Failed to list sessions");
+            var payload = JsonSerializer.Serialize(new OutgoingSessionsListMessage { RequestId = requestId });
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
+
+            var result = await WaitWithTimeoutAsync(tcs, ct);
+            if (!result.Ok)
+            {
+                throw new InvalidOperationException(result.Error ?? "Failed to list sessions");
+            }
+            return result.Sessions ?? new List<SessionSummary>();
         }
-        return result.Sessions ?? new List<SessionSummary>();
+        finally
+        {
+            _pendingSessionsListRequests.Remove(requestId);
+        }
     }
 
     public async Task<List<SessionTurn>> GetSessionHistoryAsync(string sessionId, CancellationToken ct = default)
@@ -139,20 +234,48 @@ public class ChatClientService : IAsyncDisposable
         var tcs = new TaskCompletionSource<SessionsHistoryResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pendingSessionsHistoryRequests[requestId] = tcs;
 
-        var payload = JsonSerializer.Serialize(new OutgoingSessionsHistoryMessage { RequestId = requestId, SessionId = sessionId });
-        var bytes = Encoding.UTF8.GetBytes(payload);
-        await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
-
-        using var reg = ct.Register(() => tcs.TrySetCanceled());
-        var result = await tcs.Task;
-        if (!result.Ok)
+        try
         {
-            throw new InvalidOperationException(result.Error ?? "Failed to load session history");
+            var payload = JsonSerializer.Serialize(new OutgoingSessionsHistoryMessage { RequestId = requestId, SessionId = sessionId });
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
+
+            var result = await WaitWithTimeoutAsync(tcs, ct);
+            if (!result.Ok)
+            {
+                throw new InvalidOperationException(result.Error ?? "Failed to load session history");
+            }
+            return result.Turns ?? new List<SessionTurn>();
         }
-        return result.Turns ?? new List<SessionTurn>();
+        finally
+        {
+            _pendingSessionsHistoryRequests.Remove(requestId);
+        }
     }
 
-    public async Task SendChatAsync(string conversationId, string text, CancellationToken ct = default)
+    /// <summary>
+    /// Awaits a pending request's TaskCompletionSource with a bounded timeout on top of the caller's
+    /// own cancellation token. On timeout, force-disconnects (see remarks on RequestTimeout above)
+    /// so a stale, silently-blocked socket doesn't keep failing every subsequent attempt the same way.
+    /// </summary>
+    async Task<T> WaitWithTimeoutAsync<T>(TaskCompletionSource<T> tcs, CancellationToken ct)
+    {
+        using var timeoutCts = new CancellationTokenSource(RequestTimeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+        using var reg = linkedCts.Token.Register(() => tcs.TrySetCanceled());
+
+        try
+        {
+            return await tcs.Task;
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        {
+            await DisconnectAsync();
+            throw new TimeoutException("Timed out waiting for the server. This can happen right after granting local network access - try again.");
+        }
+    }
+
+    public async Task SendChatAsync(string conversationId, string text, List<ChatAttachment>? attachments = null, CancellationToken ct = default)
     {
         if (_socket is null || _socket.State != WebSocketState.Open)
         {
@@ -163,7 +286,8 @@ public class ChatClientService : IAsyncDisposable
         {
             Type = "chat",
             ConversationId = conversationId,
-            Text = text
+            Text = text,
+            Attachments = attachments is { Count: > 0 } ? attachments : null
         });
         var bytes = Encoding.UTF8.GetBytes(payload);
         await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
@@ -281,6 +405,8 @@ public class ChatClientService : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _backgroundConnectCts?.Cancel();
+        _backgroundConnectCts = null;
         await DisconnectAsync();
     }
 
@@ -289,6 +415,7 @@ public class ChatClientService : IAsyncDisposable
         [JsonPropertyName("type")] public string Type { get; set; } = "chat";
         [JsonPropertyName("conversationId")] public string ConversationId { get; set; } = string.Empty;
         [JsonPropertyName("text")] public string Text { get; set; } = string.Empty;
+        [JsonPropertyName("attachments")] public List<ChatAttachment>? Attachments { get; set; }
     }
 
     class IncomingServerMessage
@@ -356,6 +483,14 @@ public class ChatClientService : IAsyncDisposable
 }
 
 public record ToolEventArgs(string Status, string Name, string? Summary, string? Detail, bool? Success);
+
+/// <summary>An image/file pasted into the composer, sent base64-encoded as part of a chat turn (PBI-019).</summary>
+public class ChatAttachment
+{
+    [JsonPropertyName("mimeType")] public string MimeType { get; set; } = string.Empty;
+    [JsonPropertyName("data")] public string Data { get; set; } = string.Empty;
+    [JsonPropertyName("fileName")] public string? FileName { get; set; }
+}
 
 public class McpServerSummary
 {
