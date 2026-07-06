@@ -32,6 +32,12 @@ export interface ServerConfig {
    * tests can point it at a throwaway temp file instead of the real one).
    */
   sessionMetaFilePath: string;
+  /**
+   * Port for the internal control API (used by the session-control MCP server to dispatch turns
+   * to other sessions on this same machine - see wsServer.ts/internalControlApi.ts design notes).
+   * Always bound to 127.0.0.1 only, never exposed on the network. Defaults to PORT+1.
+   */
+  internalControlPort: number;
 }
 
 function resolveBrowseRoots(): string[] {
@@ -94,4 +100,5 @@ export const config: ServerConfig = {
   sessionMetaFilePath: process.env.SESSION_META_FILE
     ? path.resolve(process.env.SESSION_META_FILE)
     : path.resolve(__dirname, '..', 'data', 'session-meta.json'),
+  internalControlPort: parseInt(process.env.INTERNAL_CONTROL_PORT ?? '', 10) || parseInt(process.env.PORT ?? '5219', 10) + 1,
 };

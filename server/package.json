@@ -11,9 +11,11 @@
     "test": "jest"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "cross-spawn": "^7.0.6",
     "dotenv": "^16.4.5",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/cross-spawn": "^6.0.6",

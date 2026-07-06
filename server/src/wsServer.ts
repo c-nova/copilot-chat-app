@@ -3,7 +3,7 @@ import * as path from 'path';
 import { IncomingMessage } from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { config } from './config';
-import { runCopilotTurn } from './copilotRunner';
+import { AttachmentInput, DeltaHandler, runCopilotTurn, ToolEventHandler, TurnResult } from './copilotRunner';
 import { gitClone, listDir } from './fsBrowser';
 import { addMcpServer, listMcpServers, removeMcpServer } from './mcpManager';
 import { isPathAllowed } from './pathAccess';
@@ -50,6 +50,93 @@ function isAuthorized(req: IncomingMessage): boolean {
   return ok;
 }
 
+// conversationId (== Copilot CLI session id) -> cwd it's bound to. Module-scoped (rather than
+// local to createChatServer()) so both the WebSocket handler below and the internal control API
+// (internalControlApi.ts, used by the session-control MCP server - see design notes) share the
+// exact same state and, more importantly, the exact same serialization point in conversationLocks.
+// That's what guarantees a controller session can never run a second, overlapping `copilot`
+// process against a session a human is already actively chatting with via the app.
+const conversationSessions = new Map<string, { sessionId: string; cwd: string }>();
+const conversationLocks = new Map<string, Promise<void>>();
+
+export interface RunConversationTurnOptions {
+  attachments?: AttachmentInput[];
+  /** Working directory to create a brand-new session in; ignored when resuming an existing one. */
+  requestedCwd?: string;
+  /**
+   * When true, throws instead of silently creating a brand-new session if `conversationId` doesn't
+   * already correspond to one. Used by the internal control API so a controller session can only
+   * ever dispatch work to a session that already exists, never spin up an arbitrary new one by id.
+   */
+  requireExistingSession?: boolean;
+  onDelta?: DeltaHandler;
+  onToolEvent?: ToolEventHandler;
+}
+
+/**
+ * Runs one chat turn for `conversationId`, serialized against any other in-flight turn for the
+ * same id via `conversationLocks` - shared by the WebSocket chat handler and the internal control
+ * API, so a human using the app and a controller session's `run_turn_on_session` tool can never
+ * both drive the same underlying Copilot CLI session concurrently.
+ */
+export function runConversationTurn(
+  conversationId: string,
+  text: string,
+  options: RunConversationTurnOptions = {},
+): Promise<TurnResult> {
+  const prior = conversationLocks.get(conversationId) ?? Promise.resolve();
+  const turn = prior.catch(() => undefined).then(() => runConversationTurnCore(conversationId, text, options));
+  // The lock map only needs to know "when is the prior turn settled", never why - a rejected turn
+  // shouldn't jam the queue for whatever tries to use this conversationId next.
+  conversationLocks.set(conversationId, turn.then(() => undefined, () => undefined));
+  return turn;
+}
+
+async function runConversationTurnCore(
+  conversationId: string,
+  text: string,
+  options: RunConversationTurnOptions,
+): Promise<TurnResult> {
+  // The client-provided conversationId doubles directly as the Copilot CLI --session-id: the CLI
+  // creates a new session if it doesn't exist yet, or resumes it if it does. This lets a caller
+  // "resume" any past session just by reusing its id as the conversationId.
+  let state = conversationSessions.get(conversationId);
+  if (!state) {
+    const sessionId = conversationId;
+    // Prefer the cwd the CLI itself already recorded for this session id (e.g. resuming one picked
+    // from the Sessions list, possibly after a server restart) over anything the caller sends -
+    // this guarantees a resume can never silently run in a different folder than the session's own
+    // history.
+    const existingCwd = getSessionCwd(sessionId);
+    if (!existingCwd && options.requireExistingSession) {
+      throw new Error(`No existing session found for id: ${sessionId}`);
+    }
+    const requestedCwd = options.requestedCwd ? path.resolve(options.requestedCwd) : undefined;
+    let cwd: string;
+    if (existingCwd) {
+      cwd = existingCwd;
+    } else if (requestedCwd && isPathAllowed(requestedCwd, config.browseRoots)) {
+      cwd = requestedCwd;
+    } else {
+      if (requestedCwd) {
+        console.warn(`[wsServer] Rejected cwd outside allowed roots for new session ${sessionId}: ${requestedCwd}`);
+      }
+      cwd = config.workDir;
+    }
+    state = { sessionId, cwd };
+    conversationSessions.set(conversationId, state);
+  }
+
+  return runCopilotTurn(
+    state.sessionId,
+    text,
+    options.onDelta ?? (() => {}),
+    options.onToolEvent ?? (() => {}),
+    options.attachments,
+    state.cwd,
+  );
+}
+
 export function createChatServer(): WebSocketServer {
   const wss = new WebSocketServer({ port: config.port, verifyClient: (info, done) => {
     if (isAuthorized(info.req)) {
@@ -58,13 +145,6 @@ export function createChatServer(): WebSocketServer {
       done(false, 401, 'Unauthorized');
     }
   }});
-
-  // conversationId (client-chosen) -> { sessionId, cwd } this conversation is bound to. sessionId is
-  // currently always equal to conversationId (the CLI creates a new session if it doesn't exist yet,
-  // or resumes it if it does), but cwd must be resolved once per conversation and then stays fixed.
-  const conversationSessions = new Map<string, { sessionId: string; cwd: string }>();
-  // Serialize turns per conversation so we never run two overlapping CLI invocations for the same session id.
-  const conversationLocks = new Map<string, Promise<void>>();
 
   wss.on('connection', (ws) => {
     // Tracks which conversationIds this socket has driven turns for, so we can clean up the
@@ -211,64 +291,26 @@ export function createChatServer(): WebSocketServer {
 
       const { conversationId, text, attachments } = msg;
       conversationIdsSeenOnThisSocket.add(conversationId);
-      const prior = conversationLocks.get(conversationId) ?? Promise.resolve();
-      const turn = prior
-        .catch(() => undefined)
-        .then(async () => {
-          // The client-provided conversationId doubles directly as the Copilot CLI --session-id:
-          // the CLI creates a new session if it doesn't exist yet, or resumes it if it does. This
-          // lets the client "resume" any past session just by reusing its id as the conversationId.
-          let state = conversationSessions.get(conversationId);
-          if (!state) {
-            const sessionId = conversationId;
-            // Prefer the cwd the CLI itself already recorded for this session id (e.g. resuming one
-            // picked from the Sessions list, possibly after a server restart) over anything the client
-            // sends - this guarantees a resume can never silently run in a different folder than the
-            // session's own history.
-            const existingCwd = getSessionCwd(sessionId);
-            const requestedCwd = msg.cwd ? path.resolve(msg.cwd) : undefined;
-            let cwd: string;
-            if (existingCwd) {
-              cwd = existingCwd;
-            } else if (requestedCwd && isPathAllowed(requestedCwd, config.browseRoots)) {
-              cwd = requestedCwd;
-            } else {
-              if (requestedCwd) {
-                console.warn(`[wsServer] Rejected cwd outside allowed roots for new session ${sessionId}: ${requestedCwd}`);
-              }
-              cwd = config.workDir;
-            }
-            state = { sessionId, cwd };
-            conversationSessions.set(conversationId, state);
-          }
-          try {
-            const result = await runCopilotTurn(
-              state.sessionId,
-              text,
-              (delta) => {
-                send(ws, { type: 'delta', conversationId, text: delta });
-              },
-              (toolEvent) => {
-                send(ws, {
-                  type: 'tool',
-                  conversationId,
-                  status: toolEvent.status,
-                  name: toolEvent.name,
-                  summary: toolEvent.summary,
-                  detail: toolEvent.detail,
-                  success: toolEvent.success,
-                });
-              },
-              attachments,
-              state.cwd,
-            );
-            send(ws, { type: 'final', conversationId, text: result.finalText });
-          } catch (err: any) {
-            send(ws, { type: 'error', conversationId, message: err?.message ?? String(err) });
-          }
+      try {
+        const result = await runConversationTurn(conversationId, text, {
+          attachments,
+          requestedCwd: msg.cwd,
+          onDelta: (delta) => send(ws, { type: 'delta', conversationId, text: delta }),
+          onToolEvent: (toolEvent) =>
+            send(ws, {
+              type: 'tool',
+              conversationId,
+              status: toolEvent.status,
+              name: toolEvent.name,
+              summary: toolEvent.summary,
+              detail: toolEvent.detail,
+              success: toolEvent.success,
+            }),
         });
-      conversationLocks.set(conversationId, turn);
-      await turn;
+        send(ws, { type: 'final', conversationId, text: result.finalText });
+      } catch (err: any) {
+        send(ws, { type: 'error', conversationId, message: err?.message ?? String(err) });
+      }
     });
   });
 
