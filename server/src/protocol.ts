@@ -59,13 +59,32 @@ export interface ClientSessionsHistoryMessage {
   sessionId: string;
 }
 
+/** Lists subdirectories of `path` for the new-session folder picker. Omit `path` to start at the top. */
+export interface ClientFsListDirMessage {
+  type: 'fs:list-dir';
+  requestId: string;
+  path?: string;
+}
+
+/** Clones a git repository into a new subfolder of `parentPath`. */
+export interface ClientFsGitCloneMessage {
+  type: 'fs:git-clone';
+  requestId: string;
+  parentPath: string;
+  repoUrl: string;
+  /** Optional destination folder name; auto-derived from repoUrl if omitted. */
+  destName?: string;
+}
+
 export type ClientMessage =
   | ClientChatMessage
   | ClientMcpListMessage
   | ClientMcpAddMessage
   | ClientMcpRemoveMessage
   | ClientSessionsListMessage
-  | ClientSessionsHistoryMessage;
+  | ClientSessionsHistoryMessage
+  | ClientFsListDirMessage
+  | ClientFsGitCloneMessage;
 
 /** Messages sent from server -> client over the WebSocket. */
 export interface ServerDeltaMessage {
@@ -150,6 +169,31 @@ export interface ServerSessionsHistoryResultMessage {
   error?: string;
 }
 
+export interface FsEntryDto {
+  name: string;
+  path: string;
+  isDir: boolean;
+}
+
+export interface ServerFsListDirResultMessage {
+  type: 'fs:list-dir-result';
+  requestId: string;
+  ok: boolean;
+  path?: string | null;
+  parentPath?: string | null;
+  entries?: FsEntryDto[];
+  roots?: string[];
+  error?: string;
+}
+
+export interface ServerFsGitCloneResultMessage {
+  type: 'fs:git-clone-result';
+  requestId: string;
+  ok: boolean;
+  path?: string;
+  error?: string;
+}
+
 export type ServerMessage =
   | ServerDeltaMessage
   | ServerFinalMessage
@@ -157,4 +201,6 @@ export type ServerMessage =
   | ServerToolMessage
   | ServerMcpResultMessage
   | ServerSessionsListResultMessage
-  | ServerSessionsHistoryResultMessage;
+  | ServerSessionsHistoryResultMessage
+  | ServerFsListDirResultMessage
+  | ServerFsGitCloneResultMessage;

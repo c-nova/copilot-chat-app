@@ -4,6 +4,7 @@ import { IncomingMessage } from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { config } from './config';
 import { runCopilotTurn } from './copilotRunner';
+import { gitClone, listDir } from './fsBrowser';
 import { addMcpServer, listMcpServers, removeMcpServer } from './mcpManager';
 import { isPathAllowed } from './pathAccess';
 import { ClientMessage, ServerMessage } from './protocol';
@@ -138,6 +139,34 @@ export function createChatServer(): WebSocketServer {
           send(ws, { type: 'sessions:history-result', requestId: msg.requestId, ok: true, sessionId: msg.sessionId, turns });
         } catch (err: any) {
           send(ws, { type: 'sessions:history-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
+        }
+        return;
+      }
+
+      if (msg.type === 'fs:list-dir') {
+        try {
+          const result = listDir(msg.path, config.browseRoots);
+          send(ws, {
+            type: 'fs:list-dir-result',
+            requestId: msg.requestId,
+            ok: true,
+            path: result.path,
+            parentPath: result.parentPath,
+            entries: result.entries,
+            roots: result.roots,
+          });
+        } catch (err: any) {
+          send(ws, { type: 'fs:list-dir-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
+        }
+        return;
+      }
+
+      if (msg.type === 'fs:git-clone') {
+        try {
+          const clonedPath = await gitClone(msg.parentPath, msg.repoUrl, msg.destName, config.browseRoots);
+          send(ws, { type: 'fs:git-clone-result', requestId: msg.requestId, ok: true, path: clonedPath });
+        } catch (err: any) {
+          send(ws, { type: 'fs:git-clone-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
         }
         return;
       }
