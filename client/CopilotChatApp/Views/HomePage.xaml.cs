@@ -44,6 +44,7 @@ public partial class HomePage : ContentPage
         if (!await SettingsService.IsConfiguredAsync())
         {
             NotConfiguredLabel.IsVisible = true;
+            ServerInfoBorder.IsVisible = false;
             Sessions.Clear();
             return;
         }
@@ -58,6 +59,7 @@ public partial class HomePage : ContentPage
             var sessions = await _client.ListSessionsAsync();
             Sessions.Clear();
             foreach (var s in sessions) Sessions.Add(s);
+            await RefreshServerInfoAsync();
         }
         catch (Exception ex)
         {
@@ -78,6 +80,26 @@ public partial class HomePage : ContentPage
             LoadingIndicator.IsVisible = false;
             LoadingIndicator.IsRunning = false;
             LoadingLabel.IsVisible = false;
+        }
+    }
+
+    /// <summary>
+    /// Best-effort: shows a small OS/hostname/CLI-version/model chip at the top of the screen. Never
+    /// blocks or fails the rest of the screen - an older server that doesn't understand "server:info"
+    /// yet, or any other hiccup, should just leave the chip hidden.
+    /// </summary>
+    async Task RefreshServerInfoAsync()
+    {
+        try
+        {
+            var info = await _client.GetServerInfoAsync();
+            var modelText = string.IsNullOrWhiteSpace(info.Model) || info.Model == "(default)" ? "default model" : info.Model;
+            ServerInfoLabel.Text = $"{info.OsGlyph} {info.Hostname} ・ Copilot CLI {info.CopilotCliVersion} ・ {modelText}";
+            ServerInfoBorder.IsVisible = true;
+        }
+        catch
+        {
+            ServerInfoBorder.IsVisible = false;
         }
     }
 
