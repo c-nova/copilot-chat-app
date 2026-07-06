@@ -1,4 +1,5 @@
 using System.Net.WebSockets;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -14,6 +15,10 @@ public class ChatClientService : IAsyncDisposable
     readonly Dictionary<string, TaskCompletionSource<McpResult>> _pendingMcpRequests = new();
     readonly Dictionary<string, TaskCompletionSource<SessionsListResult>> _pendingSessionsListRequests = new();
     readonly Dictionary<string, TaskCompletionSource<SessionsHistoryResult>> _pendingSessionsHistoryRequests = new();
+    readonly Dictionary<string, TaskCompletionSource<FsListDirResult>> _pendingFsListDirRequests = new();
+    readonly Dictionary<string, TaskCompletionSource<FsGitCloneResult>> _pendingFsGitCloneRequests = new();
+    readonly Dictionary<string, TaskCompletionSource<ServerInfoResult>> _pendingServerInfoRequests = new();
+    readonly Dictionary<string, TaskCompletionSource<SessionsUpdateMetaResult>> _pendingSessionsUpdateMetaRequests = new();
 
     public event Action<string>? OnDelta;
     public event Action<string>? OnFinal;
@@ -275,7 +280,7 @@ public class ChatClientService : IAsyncDisposable
         }
     }
 
-    public async Task SendChatAsync(string conversationId, string text, List<ChatAttachment>? attachments = null, CancellationToken ct = default)
+    public async Task SendChatAsync(string conversationId, string text, List<ChatAttachment>? attachments = null, string? cwd = null, CancellationToken ct = default)
     {
         if (_socket is null || _socket.State != WebSocketState.Open)
         {
@@ -287,10 +292,183 @@ public class ChatClientService : IAsyncDisposable
             Type = "chat",
             ConversationId = conversationId,
             Text = text,
-            Attachments = attachments is { Count: > 0 } ? attachments : null
+            Attachments = attachments is { Count: > 0 } ? attachments : null,
+            Cwd = cwd
         });
         var bytes = Encoding.UTF8.GetBytes(payload);
         await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
+    }
+
+    /// <summary>Lists subdirectories under `path` (or the configured browse roots themselves, if `path` is omitted) for the new-session folder picker.</summary>
+    public async Task<FsListDirResult> ListDirAsync(string? path = null, CancellationToken ct = default)
+    {
+        if (_socket is null || _socket.State != WebSocketState.Open)
+        {
+            throw new InvalidOperationException("Not connected to server.");
+        }
+
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<FsListDirResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingFsListDirRequests[requestId] = tcs;
+        try
+        {
+            var payload = JsonSerializer.Serialize(new OutgoingFsListDirMessage { RequestId = requestId, Path = path });
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
+
+            var result = await WaitWithTimeoutAsync(tcs, ct);
+            if (!result.Ok)
+            {
+                throw new InvalidOperationException(result.Error ?? "Failed to list folder");
+            }
+            return result;
+        }
+        finally
+        {
+            _pendingFsListDirRequests.Remove(requestId);
+        }
+    }
+
+    /// <summary>Clones a git repository into a new subfolder of `parentPath`, returning the resulting absolute path.</summary>
+    public async Task<string> GitCloneAsync(string parentPath, string repoUrl, string? destName = null, CancellationToken ct = default)
+    {
+        if (_socket is null || _socket.State != WebSocketState.Open)
+        {
+            throw new InvalidOperationException("Not connected to server.");
+        }
+
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<FsGitCloneResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingFsGitCloneRequests[requestId] = tcs;
+        try
+        {
+            var payload = JsonSerializer.Serialize(new OutgoingFsGitCloneMessage
+            {
+                RequestId = requestId,
+                ParentPath = parentPath,
+                RepoUrl = repoUrl,
+                DestName = destName
+            });
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            // Cloning can take a while on a slow connection/large repo - give it much more headroom
+            // than the default request timeout rather than force-disconnecting a healthy clone in progress.
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+            await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, linkedCts.Token);
+
+            var result = await tcs.Task.WaitAsync(linkedCts.Token);
+            if (!result.Ok)
+            {
+                throw new InvalidOperationException(result.Error ?? "Failed to clone repository");
+            }
+            return result.Path ?? throw new InvalidOperationException("Clone succeeded but no path was returned.");
+        }
+        finally
+        {
+            _pendingFsGitCloneRequests.Remove(requestId);
+        }
+    }
+
+    /// <summary>Fetches this server's environment/version metadata (OS, CLI version, model, etc.) for display and future controller-session use.</summary>
+    public async Task<ServerInfo> GetServerInfoAsync(CancellationToken ct = default)
+    {
+        if (_socket is null || _socket.State != WebSocketState.Open)
+        {
+            throw new InvalidOperationException("Not connected to server.");
+        }
+
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<ServerInfoResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingServerInfoRequests[requestId] = tcs;
+        try
+        {
+            var payload = JsonSerializer.Serialize(new OutgoingServerInfoMessage { RequestId = requestId });
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
+
+            var result = await WaitWithTimeoutAsync(tcs, ct);
+            if (!result.Ok || result.Info is null)
+            {
+                throw new InvalidOperationException(result.Error ?? "Failed to get server info");
+            }
+            return result.Info;
+        }
+        finally
+        {
+            _pendingServerInfoRequests.Remove(requestId);
+        }
+    }
+
+    /// <summary>
+    /// Sets (or, with `label: null`, clears) a session's display label - a sidecar annotation only;
+    /// never touches the CLI's own session-store.db. Split from archiving into its own message so the
+    /// wire payload never has to represent "leave the other field unchanged" ambiguously.
+    /// </summary>
+    public async Task SetSessionLabelAsync(string sessionId, string? label, CancellationToken ct = default)
+    {
+        if (_socket is null || _socket.State != WebSocketState.Open)
+        {
+            throw new InvalidOperationException("Not connected to server.");
+        }
+
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<SessionsUpdateMetaResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingSessionsUpdateMetaRequests[requestId] = tcs;
+        try
+        {
+            var payload = JsonSerializer.Serialize(new OutgoingSessionsSetLabelMessage
+            {
+                RequestId = requestId,
+                SessionId = sessionId,
+                Label = label,
+            });
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
+
+            var result = await WaitWithTimeoutAsync(tcs, ct);
+            if (!result.Ok)
+            {
+                throw new InvalidOperationException(result.Error ?? "Failed to set session label");
+            }
+        }
+        finally
+        {
+            _pendingSessionsUpdateMetaRequests.Remove(requestId);
+        }
+    }
+
+    /// <summary>Sets a session's archived flag (the "soft delete" - see PBI-021) - a sidecar annotation only.</summary>
+    public async Task SetSessionArchivedAsync(string sessionId, bool archived, CancellationToken ct = default)
+    {
+        if (_socket is null || _socket.State != WebSocketState.Open)
+        {
+            throw new InvalidOperationException("Not connected to server.");
+        }
+
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<SessionsUpdateMetaResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingSessionsUpdateMetaRequests[requestId] = tcs;
+        try
+        {
+            var payload = JsonSerializer.Serialize(new OutgoingSessionsSetArchivedMessage
+            {
+                RequestId = requestId,
+                SessionId = sessionId,
+                Archived = archived,
+            });
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
+
+            var result = await WaitWithTimeoutAsync(tcs, ct);
+            if (!result.Ok)
+            {
+                throw new InvalidOperationException(result.Error ?? "Failed to update session");
+            }
+        }
+        finally
+        {
+            _pendingSessionsUpdateMetaRequests.Remove(requestId);
+        }
     }
 
     async Task ReceiveLoopAsync(ClientWebSocket socket, CancellationToken ct)
@@ -376,6 +554,30 @@ public class ChatClientService : IAsyncDisposable
                     sessionsHistoryTcs.TrySetResult(new SessionsHistoryResult(msg.Ok ?? false, msg.Error, msg.Turns));
                 }
                 break;
+            case "fs:list-dir-result":
+                if (msg.RequestId is not null && _pendingFsListDirRequests.Remove(msg.RequestId, out var fsListDirTcs))
+                {
+                    fsListDirTcs.TrySetResult(new FsListDirResult(msg.Ok ?? false, msg.Error, msg.Path, msg.ParentPath, msg.Entries, msg.Roots));
+                }
+                break;
+            case "fs:git-clone-result":
+                if (msg.RequestId is not null && _pendingFsGitCloneRequests.Remove(msg.RequestId, out var fsGitCloneTcs))
+                {
+                    fsGitCloneTcs.TrySetResult(new FsGitCloneResult(msg.Ok ?? false, msg.Error, msg.Path));
+                }
+                break;
+            case "server:info-result":
+                if (msg.RequestId is not null && _pendingServerInfoRequests.Remove(msg.RequestId, out var serverInfoTcs))
+                {
+                    serverInfoTcs.TrySetResult(new ServerInfoResult(msg.Ok ?? false, msg.Error, msg.Info));
+                }
+                break;
+            case "sessions:update-meta-result":
+                if (msg.RequestId is not null && _pendingSessionsUpdateMetaRequests.Remove(msg.RequestId, out var updateMetaTcs))
+                {
+                    updateMetaTcs.TrySetResult(new SessionsUpdateMetaResult(msg.Ok ?? false, msg.Error));
+                }
+                break;
         }
     }
 
@@ -416,6 +618,7 @@ public class ChatClientService : IAsyncDisposable
         [JsonPropertyName("conversationId")] public string ConversationId { get; set; } = string.Empty;
         [JsonPropertyName("text")] public string Text { get; set; } = string.Empty;
         [JsonPropertyName("attachments")] public List<ChatAttachment>? Attachments { get; set; }
+        [JsonPropertyName("cwd")] public string? Cwd { get; set; }
     }
 
     class IncomingServerMessage
@@ -436,6 +639,11 @@ public class ChatClientService : IAsyncDisposable
         [JsonPropertyName("server")] public McpServerSummary? Server { get; set; }
         [JsonPropertyName("sessions")] public List<SessionSummary>? Sessions { get; set; }
         [JsonPropertyName("turns")] public List<SessionTurn>? Turns { get; set; }
+        [JsonPropertyName("path")] public string? Path { get; set; }
+        [JsonPropertyName("parentPath")] public string? ParentPath { get; set; }
+        [JsonPropertyName("entries")] public List<FsEntry>? Entries { get; set; }
+        [JsonPropertyName("roots")] public List<string>? Roots { get; set; }
+        [JsonPropertyName("info")] public ServerInfo? Info { get; set; }
     }
 
     class OutgoingMcpListMessage
@@ -477,12 +685,86 @@ public class ChatClientService : IAsyncDisposable
         [JsonPropertyName("sessionId")] public string SessionId { get; set; } = string.Empty;
     }
 
+    class OutgoingFsListDirMessage
+    {
+        [JsonPropertyName("type")] public string Type { get; set; } = "fs:list-dir";
+        [JsonPropertyName("requestId")] public string RequestId { get; set; } = string.Empty;
+        [JsonPropertyName("path")] public string? Path { get; set; }
+    }
+
+    class OutgoingFsGitCloneMessage
+    {
+        [JsonPropertyName("type")] public string Type { get; set; } = "fs:git-clone";
+        [JsonPropertyName("requestId")] public string RequestId { get; set; } = string.Empty;
+        [JsonPropertyName("parentPath")] public string ParentPath { get; set; } = string.Empty;
+        [JsonPropertyName("repoUrl")] public string RepoUrl { get; set; } = string.Empty;
+        [JsonPropertyName("destName")] public string? DestName { get; set; }
+    }
+
+    class OutgoingServerInfoMessage
+    {
+        [JsonPropertyName("type")] public string Type { get; set; } = "server:info";
+        [JsonPropertyName("requestId")] public string RequestId { get; set; } = string.Empty;
+    }
+
+    /// <summary>Only ever carries `label` on the wire - never `archived` - so the server can't misread this as also clearing/setting the archived flag.</summary>
+    class OutgoingSessionsSetLabelMessage
+    {
+        [JsonPropertyName("type")] public string Type { get; set; } = "sessions:update-meta";
+        [JsonPropertyName("requestId")] public string RequestId { get; set; } = string.Empty;
+        [JsonPropertyName("sessionId")] public string SessionId { get; set; } = string.Empty;
+        [JsonPropertyName("label")] public string? Label { get; set; }
+    }
+
+    /// <summary>Only ever carries `archived` on the wire - never `label` - for the same reason as OutgoingSessionsSetLabelMessage.</summary>
+    class OutgoingSessionsSetArchivedMessage
+    {
+        [JsonPropertyName("type")] public string Type { get; set; } = "sessions:update-meta";
+        [JsonPropertyName("requestId")] public string RequestId { get; set; } = string.Empty;
+        [JsonPropertyName("sessionId")] public string SessionId { get; set; } = string.Empty;
+        [JsonPropertyName("archived")] public bool Archived { get; set; }
+    }
+
     record McpResult(bool Ok, string? Error, List<McpServerSummary>? Servers, McpServerSummary? Server);
     record SessionsListResult(bool Ok, string? Error, List<SessionSummary>? Sessions);
     record SessionsHistoryResult(bool Ok, string? Error, List<SessionTurn>? Turns);
+    public record FsListDirResult(bool Ok, string? Error, string? Path, string? ParentPath, List<FsEntry>? Entries, List<string>? Roots);
+    record FsGitCloneResult(bool Ok, string? Error, string? Path);
+    record ServerInfoResult(bool Ok, string? Error, ServerInfo? Info);
+    record SessionsUpdateMetaResult(bool Ok, string? Error);
 }
 
 public record ToolEventArgs(string Status, string Name, string? Summary, string? Detail, bool? Success);
+
+/// <summary>A folder or file entry returned by fs:list-dir (folders only, in practice - see server/src/fsBrowser.ts).</summary>
+public class FsEntry
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+    [JsonPropertyName("path")] public string Path { get; set; } = string.Empty;
+    [JsonPropertyName("isDir")] public bool IsDir { get; set; }
+}
+
+/// <summary>Server environment/version metadata (see server/src/serverInfo.ts) - shown as a per-server badge and usable by a future controller session.</summary>
+public class ServerInfo
+{
+    [JsonPropertyName("os")] public string Os { get; set; } = string.Empty;
+    [JsonPropertyName("hostname")] public string Hostname { get; set; } = string.Empty;
+    [JsonPropertyName("appVersion")] public string AppVersion { get; set; } = string.Empty;
+    [JsonPropertyName("copilotCliVersion")] public string CopilotCliVersion { get; set; } = string.Empty;
+    [JsonPropertyName("nodeVersion")] public string NodeVersion { get; set; } = string.Empty;
+    [JsonPropertyName("model")] public string Model { get; set; } = string.Empty;
+    [JsonPropertyName("workDir")] public string WorkDir { get; set; } = string.Empty;
+    [JsonPropertyName("browseRoots")] public List<string> BrowseRoots { get; set; } = new();
+
+    /// <summary>A short glyph for the OS, for compact display next to a server name in the Sessions list.</summary>
+    public string OsGlyph => Os switch
+    {
+        "darwin" => "🍎",
+        "win32" => "🪟",
+        "linux" => "🐧",
+        _ => "💻",
+    };
+}
 
 /// <summary>An image/file pasted into the composer, sent base64-encoded as part of a chat turn (PBI-019).</summary>
 public class ChatAttachment
@@ -510,10 +792,28 @@ public class McpServerSummary
 public class SessionSummary
 {
     [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
+    [JsonPropertyName("cwd")] public string Cwd { get; set; } = string.Empty;
     [JsonPropertyName("summary")] public string Summary { get; set; } = string.Empty;
     [JsonPropertyName("createdAt")] public string CreatedAt { get; set; } = string.Empty;
     [JsonPropertyName("updatedAt")] public string UpdatedAt { get; set; } = string.Empty;
     [JsonPropertyName("turnCount")] public int TurnCount { get; set; }
+    [JsonPropertyName("label")] public string? Label { get; set; }
+    [JsonPropertyName("archived")] public bool Archived { get; set; }
+
+    /// <summary>The label if set, otherwise the folder name from Cwd, otherwise the CLI's auto-generated summary - whatever's most useful to show as the primary title.</summary>
+    public string DisplayTitle
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(Label)) return Label!;
+            if (!string.IsNullOrWhiteSpace(Cwd))
+            {
+                var folderName = Cwd.TrimEnd('/', '\\').Split('/', '\\').LastOrDefault();
+                if (!string.IsNullOrWhiteSpace(folderName)) return folderName!;
+            }
+            return Summary;
+        }
+    }
 
     public string DisplaySubtitle
     {
