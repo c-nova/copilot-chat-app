@@ -1,4 +1,5 @@
 using CopilotChatApp.Models;
+using CopilotChatApp.Services;
 using CopilotChatApp.ViewModels;
 using CopilotChatApp.Views;
 
@@ -47,6 +48,17 @@ public partial class MainPage : ContentPage
             SetUpSubmitShortcut();
         };
 #endif
+    }
+
+    /// <summary>
+    /// Opens this page already showing a resumed session's history (used when navigating here from
+    /// the Home/Sessions launch screen). Applies the resumed messages synchronously so they're in
+    /// place before the first frame renders - <see cref="ChatViewModel.InitializeAsync"/> (called from
+    /// OnAppearing) only connects and never clears Messages, so it won't stomp on this.
+    /// </summary>
+    public MainPage(SessionSummary session, List<SessionTurn> turns) : this()
+    {
+        _viewModel.ApplyResumedSession(session, turns);
     }
 
     /// <summary>

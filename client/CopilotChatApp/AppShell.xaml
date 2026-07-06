@@ -3,12 +3,12 @@
     x:Class="CopilotChatApp.AppShell"
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-    xmlns:local="clr-namespace:CopilotChatApp"
+    xmlns:views="clr-namespace:CopilotChatApp.Views"
     Title="GitHub Copilot CLI-GUI">
 
     <ShellContent
         Title="Home"
-        ContentTemplate="{DataTemplate local:MainPage}"
-        Route="MainPage" />
+        ContentTemplate="{DataTemplate views:HomePage}"
+        Route="HomePage" />
 
 </Shell>
