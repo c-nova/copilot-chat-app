@@ -76,6 +76,10 @@
                                    FontSize="15"
                                    LineBreakMode="TailTruncation"
                                    MaxLines="2" />
+                            <Label Text="{Binding FolderName, StringFormat='📁 {0}'}"
+                                   FontSize="10"
+                                   TextColor="{StaticResource Gray300}"
+                                   LineBreakMode="TailTruncation" />
                             <Label Text="{Binding DisplaySubtitle}"
                                    FontSize="11"
                                    TextColor="{StaticResource Gray400}" />

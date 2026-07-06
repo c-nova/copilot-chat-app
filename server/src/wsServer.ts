@@ -103,19 +103,32 @@ async function runConversationTurnCore(
   let state = conversationSessions.get(conversationId);
   if (!state) {
     const sessionId = conversationId;
+    const allowedRoots = [...config.browseRoots, config.workDir];
     // Prefer the cwd the CLI itself already recorded for this session id (e.g. resuming one picked
     // from the Sessions list, possibly after a server restart) over anything the caller sends -
     // this guarantees a resume can never silently run in a different folder than the session's own
     // history.
     const existingCwd = getSessionCwd(sessionId);
-    if (!existingCwd && options.requireExistingSession) {
+
+    if (existingCwd) {
+      // Without this check, any caller who already knew a session id outside our configured scope
+      // (e.g. one belonging to a completely unrelated Copilot-based tool on this same machine, like
+      // an internal agent) could still resume/drive it here even though it would never show up via
+      // sessions:list or the session-control MCP's list_sessions - the CLI's own db has no concept
+      // of "belongs to this app". This closes that gap uniformly for every caller (WebSocket chat
+      // AND the internal control API used by the session-control MCP), since both go through here.
+      if (!isPathAllowed(existingCwd, allowedRoots)) {
+        throw new Error(`Session ${sessionId} is outside this server's configured BROWSE_ROOTS and can't be accessed here.`);
+      }
+    } else if (options.requireExistingSession) {
       throw new Error(`No existing session found for id: ${sessionId}`);
     }
+
     const requestedCwd = options.requestedCwd ? path.resolve(options.requestedCwd) : undefined;
     let cwd: string;
     if (existingCwd) {
       cwd = existingCwd;
-    } else if (requestedCwd && isPathAllowed(requestedCwd, config.browseRoots)) {
+    } else if (requestedCwd && isPathAllowed(requestedCwd, allowedRoots)) {
       cwd = requestedCwd;
     } else {
       if (requestedCwd) {

@@ -61,7 +61,8 @@ describe('runConversationTurn', () => {
   });
 
   it('uses the CLI-recorded cwd when resuming an existing session, ignoring any requestedCwd', async () => {
-    mockedGetSessionCwd.mockReturnValue('/some/existing/cwd');
+    const existingCwd = path.join(config.workDir, 'existing-session-folder');
+    mockedGetSessionCwd.mockReturnValue(existingCwd);
     const id = uniqueId('resume');
     await runConversationTurn(id, 'hello', { requestedCwd: '/etc' });
     expect(mockedRunCopilotTurn).toHaveBeenCalledWith(
@@ -70,12 +71,22 @@ describe('runConversationTurn', () => {
       expect.any(Function),
       expect.any(Function),
       undefined,
-      '/some/existing/cwd',
+      existingCwd,
     );
   });
 
+  it('rejects resuming a session whose CLI-recorded cwd falls outside the allowed roots', async () => {
+    // Simulates a session id that belongs to a completely unrelated tool on this same machine
+    // (e.g. a different Copilot-based agent) - it must never be reachable here, even by id, just
+    // because the CLI's own session-store.db happens to have a record of it.
+    mockedGetSessionCwd.mockReturnValue('/some/other/tools/workspace');
+    const id = uniqueId('out-of-scope');
+    await expect(runConversationTurn(id, 'hello', {})).rejects.toThrow(/outside this server's configured BROWSE_ROOTS/);
+    expect(mockedRunCopilotTurn).not.toHaveBeenCalled();
+  });
+
   it('serializes two overlapping calls for the same conversationId', async () => {
-    mockedGetSessionCwd.mockReturnValue('/some/cwd');
+    mockedGetSessionCwd.mockReturnValue(path.join(config.workDir, 'serial-folder'));
     const order: string[] = [];
     mockedRunCopilotTurn.mockImplementation(async () => {
       order.push('start');
@@ -89,7 +100,7 @@ describe('runConversationTurn', () => {
   });
 
   it('does not jam the per-conversation queue after a rejected turn', async () => {
-    mockedGetSessionCwd.mockReturnValue('/some/cwd');
+    mockedGetSessionCwd.mockReturnValue(path.join(config.workDir, 'reject-then-succeed-folder'));
     const id = uniqueId('reject-then-succeed');
     mockedRunCopilotTurn.mockRejectedValueOnce(new Error('boom'));
     await expect(runConversationTurn(id, 'first', {})).rejects.toThrow('boom');

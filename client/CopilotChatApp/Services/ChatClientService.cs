@@ -800,18 +800,19 @@ public class SessionSummary
     [JsonPropertyName("label")] public string? Label { get; set; }
     [JsonPropertyName("archived")] public bool Archived { get; set; }
 
-    /// <summary>The label if set, otherwise the folder name from Cwd, otherwise the CLI's auto-generated summary - whatever's most useful to show as the primary title.</summary>
-    public string DisplayTitle
+    /// <summary>The label if set, otherwise the CLI's auto-generated summary - the actual conversation
+    /// content is far more useful for telling sessions apart than the folder name, since most sessions
+    /// share the same default workspace folder (see <see cref="FolderName"/> for that, shown as a
+    /// secondary badge instead).</summary>
+    public string DisplayTitle => !string.IsNullOrWhiteSpace(Label) ? Label! : Summary;
+
+    /// <summary>Just the last path segment of Cwd, for a small secondary "which folder" badge - not the primary title (see DisplayTitle).</summary>
+    public string? FolderName
     {
         get
         {
-            if (!string.IsNullOrWhiteSpace(Label)) return Label!;
-            if (!string.IsNullOrWhiteSpace(Cwd))
-            {
-                var folderName = Cwd.TrimEnd('/', '\\').Split('/', '\\').LastOrDefault();
-                if (!string.IsNullOrWhiteSpace(folderName)) return folderName!;
-            }
-            return Summary;
+            if (string.IsNullOrWhiteSpace(Cwd)) return null;
+            return Cwd.TrimEnd('/', '\\').Split('/', '\\').LastOrDefault();
         }
     }
 
