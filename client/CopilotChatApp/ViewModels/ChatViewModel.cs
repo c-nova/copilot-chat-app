@@ -21,6 +21,8 @@ public class ChatViewModel : INotifyPropertyChanged, IAsyncDisposable
     ChatMessage? _pendingAssistantMessage;
     readonly StringBuilder _pendingAssistantText = new();
     readonly Dictionary<string, Queue<ChatMessage>> _pendingToolMessages = new();
+    /// <summary>Working directory to create a brand-new session in - set via <see cref="SetPendingCwd"/> (from the New Chat folder picker) and sent only on the next turn. Null means "use the server's default workspace".</summary>
+    string? _pendingCwd;
 
     /// <summary>
     /// Exposes the already-connected client so other pages (e.g. SessionsPage) can reuse this single
@@ -221,7 +223,11 @@ public class ChatViewModel : INotifyPropertyChanged, IAsyncDisposable
             var wireAttachments = attachments.Count > 0
                 ? attachments.Select(a => new ChatAttachment { MimeType = a.MimeType, Data = Convert.ToBase64String(a.Bytes) }).ToList()
                 : null;
-            await _chatClient.SendChatAsync(SettingsService.ConversationId, text, wireAttachments);
+            await _chatClient.SendChatAsync(SettingsService.ConversationId, text, wireAttachments, _pendingCwd);
+            // Only the very first turn of a brand-new session needs cwd (the server ignores it on
+            // every subsequent turn anyway, since it resumes from the session's own recorded cwd) -
+            // clearing it here just avoids carrying stale state around for no reason.
+            _pendingCwd = null;
         }
         catch (Exception ex)
         {
@@ -325,6 +331,9 @@ public class ChatViewModel : INotifyPropertyChanged, IAsyncDisposable
         Messages.Clear();
         await _chatClient.DisconnectAsync();
     }
+
+    /// <summary>Sets the working directory the *next* new session should be created in (New Chat folder picker). No-op for a resumed session - the server always uses that session's own recorded cwd instead.</summary>
+    public void SetPendingCwd(string cwd) => _pendingCwd = cwd;
 
     public void ApplyResumedSession(SessionSummary session, List<SessionTurn> turns)
     {

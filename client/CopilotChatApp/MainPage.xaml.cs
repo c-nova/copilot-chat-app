@@ -61,6 +61,12 @@ public partial class MainPage : ContentPage
         _viewModel.ApplyResumedSession(session, turns);
     }
 
+    /// <summary>Opens this page for a brand-new session rooted at `cwd` (used by the New Chat folder picker). The cwd is only sent on this session's very first turn.</summary>
+    public MainPage(string cwd) : this()
+    {
+        _viewModel.SetPendingCwd(cwd);
+    }
+
     /// <summary>
     /// Scrolls the message list so the newest message is visible. Explicit ScrollTo is used in addition to
     /// ItemsUpdatingScrollMode="KeepLastItemInView" because that property alone isn't always reliable when

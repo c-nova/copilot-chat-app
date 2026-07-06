@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ContentPage
+    x:Class="CopilotChatApp.Views.NewChatPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:services="clr-namespace:CopilotChatApp.Services"
+    Title="New Chat">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Clone repo…" Clicked="OnCloneClicked" />
+    </ContentPage.ToolbarItems>
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="16" RowSpacing="10">
+
+        <Label x:Name="PathLabel"
+               Grid.Row="0"
+               FontSize="13"
+               TextColor="Gray"
+               LineBreakMode="TailTruncation" />
+
+        <HorizontalStackLayout Grid.Row="1" Spacing="8">
+            <Button x:Name="UpButton" Text="⬆ 上へ" Clicked="OnUpClicked" IsVisible="False" FontSize="13" Padding="12,6" />
+            <Button x:Name="RootsButton" Text="🏠 ルート一覧" Clicked="OnRootsClicked" IsVisible="False" FontSize="13" Padding="12,6" />
+        </HorizontalStackLayout>
+
+        <CollectionView x:Name="EntriesView"
+                        Grid.Row="2"
+                        ItemsSource="{Binding Entries}"
+                        SelectionMode="None">
+            <CollectionView.EmptyView>
+                <Label Text="サブフォルダはありません。" TextColor="Gray" Margin="0,20,0,0" />
+            </CollectionView.EmptyView>
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="services:FsEntry">
+                    <Grid Padding="0,10">
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnEntryTapped" CommandParameter="{Binding .}" />
+                        </Grid.GestureRecognizers>
+                        <Label Text="{Binding Name, StringFormat='📁 {0}'}" FontSize="15" />
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+        <VerticalStackLayout Grid.Row="3" Spacing="8">
+            <Button x:Name="UseCurrentFolderButton"
+                    Text="✅ このフォルダで新規チャットを始める"
+                    Clicked="OnUseCurrentFolderClicked"
+                    IsVisible="False" />
+            <Button Text="⚡ デフォルトworkspaceを使う"
+                    Clicked="OnUseDefaultClicked"
+                    BackgroundColor="Transparent"
+                    TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}" />
+        </VerticalStackLayout>
+    </Grid>
+
+</ContentPage>

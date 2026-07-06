@@ -137,8 +137,16 @@ public partial class HomePage : ContentPage
 
     async void OnNewChatClicked(object? sender, EventArgs e)
     {
-        SettingsService.ResetConversation();
-        await Navigation.PushAsync(new MainPage());
+        try
+        {
+            await EnsureConnectedAsync();
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlert("Error", $"Couldn't connect: {ex.Message}", "OK");
+            return;
+        }
+        await Navigation.PushAsync(new NewChatPage(_client));
     }
 
     async void OnSettingsClicked(object? sender, EventArgs e)
