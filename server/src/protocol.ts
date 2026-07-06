@@ -76,6 +76,20 @@ export interface ClientFsGitCloneMessage {
   destName?: string;
 }
 
+export interface ClientServerInfoMessage {
+  type: 'server:info';
+  requestId: string;
+}
+
+/** Updates our own sidecar annotations for a session (never touches the CLI's own db). Omit a field to leave it unchanged; pass `label: null` to clear the label. */
+export interface ClientSessionsUpdateMetaMessage {
+  type: 'sessions:update-meta';
+  requestId: string;
+  sessionId: string;
+  label?: string | null;
+  archived?: boolean;
+}
+
 export type ClientMessage =
   | ClientChatMessage
   | ClientMcpListMessage
@@ -84,7 +98,9 @@ export type ClientMessage =
   | ClientSessionsListMessage
   | ClientSessionsHistoryMessage
   | ClientFsListDirMessage
-  | ClientFsGitCloneMessage;
+  | ClientFsGitCloneMessage
+  | ClientServerInfoMessage
+  | ClientSessionsUpdateMetaMessage;
 
 /** Messages sent from server -> client over the WebSocket. */
 export interface ServerDeltaMessage {
@@ -143,6 +159,9 @@ export interface SessionSummaryDto {
   createdAt: string;
   updatedAt: string;
   turnCount: number;
+  /** Our own sidecar annotations (see sessionMeta.ts) - absent if never set. */
+  label?: string;
+  archived?: boolean;
 }
 
 export interface SessionTurnDto {
@@ -194,6 +213,34 @@ export interface ServerFsGitCloneResultMessage {
   error?: string;
 }
 
+export interface ServerInfoDto {
+  os: string;
+  hostname: string;
+  appVersion: string;
+  copilotCliVersion: string;
+  nodeVersion: string;
+  model: string;
+  workDir: string;
+  browseRoots: string[];
+}
+
+export interface ServerInfoResultMessage {
+  type: 'server:info-result';
+  requestId: string;
+  ok: boolean;
+  info?: ServerInfoDto;
+  error?: string;
+}
+
+export interface ServerSessionsUpdateMetaResultMessage {
+  type: 'sessions:update-meta-result';
+  requestId: string;
+  ok: boolean;
+  label?: string;
+  archived?: boolean;
+  error?: string;
+}
+
 export type ServerMessage =
   | ServerDeltaMessage
   | ServerFinalMessage
@@ -203,4 +250,6 @@ export type ServerMessage =
   | ServerSessionsListResultMessage
   | ServerSessionsHistoryResultMessage
   | ServerFsListDirResultMessage
-  | ServerFsGitCloneResultMessage;
+  | ServerFsGitCloneResultMessage
+  | ServerInfoResultMessage
+  | ServerSessionsUpdateMetaResultMessage;

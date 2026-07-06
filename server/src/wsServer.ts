@@ -9,6 +9,8 @@ import { addMcpServer, listMcpServers, removeMcpServer } from './mcpManager';
 import { isPathAllowed } from './pathAccess';
 import { ClientMessage, ServerMessage } from './protocol';
 import { getSessionCwd, getSessionHistory, listSessions } from './sessionHistory';
+import { getSessionMeta, setSessionArchived, setSessionLabel } from './sessionMeta';
+import { getServerInfo } from './serverInfo';
 
 function send(ws: WebSocket, msg: ServerMessage) {
   if (ws.readyState === WebSocket.OPEN) {
@@ -125,7 +127,10 @@ export function createChatServer(): WebSocketServer {
 
       if (msg.type === 'sessions:list') {
         try {
-          const sessions = listSessions([...config.browseRoots, config.workDir]);
+          const sessions = listSessions([...config.browseRoots, config.workDir]).map((s) => {
+            const meta = getSessionMeta(s.id);
+            return { ...s, label: meta?.label, archived: meta?.archived ?? false };
+          });
           send(ws, { type: 'sessions:list-result', requestId: msg.requestId, ok: true, sessions });
         } catch (err: any) {
           send(ws, { type: 'sessions:list-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
@@ -167,6 +172,34 @@ export function createChatServer(): WebSocketServer {
           send(ws, { type: 'fs:git-clone-result', requestId: msg.requestId, ok: true, path: clonedPath });
         } catch (err: any) {
           send(ws, { type: 'fs:git-clone-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
+        }
+        return;
+      }
+
+      if (msg.type === 'server:info') {
+        try {
+          const info = await getServerInfo();
+          send(ws, { type: 'server:info-result', requestId: msg.requestId, ok: true, info });
+        } catch (err: any) {
+          send(ws, { type: 'server:info-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
+        }
+        return;
+      }
+
+      if (msg.type === 'sessions:update-meta') {
+        try {
+          let meta;
+          if (msg.label !== undefined) meta = setSessionLabel(msg.sessionId, msg.label);
+          if (msg.archived !== undefined) meta = setSessionArchived(msg.sessionId, msg.archived);
+          send(ws, {
+            type: 'sessions:update-meta-result',
+            requestId: msg.requestId,
+            ok: true,
+            label: meta?.label,
+            archived: meta?.archived,
+          });
+        } catch (err: any) {
+          send(ws, { type: 'sessions:update-meta-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
         }
         return;
       }

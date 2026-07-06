@@ -26,6 +26,12 @@ export interface ServerConfig {
    * Falls back to the user's home directory if unset or if every configured entry is invalid.
    */
   browseRoots: string[];
+  /**
+   * Path to the JSON sidecar file storing our own per-session annotations (label, archived) that
+   * the CLI's own session-store.db has no concept of. Overridable via SESSION_META_FILE (mainly so
+   * tests can point it at a throwaway temp file instead of the real one).
+   */
+  sessionMetaFilePath: string;
 }
 
 function resolveBrowseRoots(): string[] {
@@ -85,4 +91,7 @@ export const config: ServerConfig = {
     ? path.resolve(process.env.WORK_DIR)
     : path.resolve(__dirname, '..', 'workspace'),
   browseRoots: resolveBrowseRoots(),
+  sessionMetaFilePath: process.env.SESSION_META_FILE
+    ? path.resolve(process.env.SESSION_META_FILE)
+    : path.resolve(__dirname, '..', 'data', 'session-meta.json'),
 };
