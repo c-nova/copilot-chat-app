@@ -1,6 +1,5 @@
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 dotenv.config();
 
@@ -23,7 +22,10 @@ export interface ServerConfig {
    * folder-browsing/git-clone flow), and the boundary used to filter which past CLI sessions show
    * up in the Sessions list. Configured via a comma-separated BROWSE_ROOTS env var; each entry is
    * resolved to an absolute path and must exist as a directory, or it's skipped with a warning.
-   * Falls back to the user's home directory if unset or if every configured entry is invalid.
+   * Falls back to just `workDir` if unset or if every configured entry is invalid - NOT the home
+   * directory: this app has always been scoped to specific working directories (see README/USAGE),
+   * and defaulting to the whole home directory would surface every Copilot CLI session ever run on
+   * the machine (including ones from completely unrelated tools) in this app's Sessions list.
    */
   browseRoots: string[];
   /**
@@ -40,7 +42,7 @@ export interface ServerConfig {
   internalControlPort: number;
 }
 
-function resolveBrowseRoots(): string[] {
+function resolveBrowseRoots(fallbackRoot: string): string[] {
   const raw = process.env.BROWSE_ROOTS;
   const candidates = raw
     ? raw
@@ -48,7 +50,7 @@ function resolveBrowseRoots(): string[] {
         .map((p) => p.trim())
         .filter(Boolean)
         .map((p) => path.resolve(p))
-    : [os.homedir()];
+    : [fallbackRoot];
 
   const valid = candidates.filter((p) => {
     try {
@@ -60,8 +62,8 @@ function resolveBrowseRoots(): string[] {
   });
 
   if (valid.length === 0) {
-    console.warn('[config] No valid BROWSE_ROOTS entries found; falling back to the home directory.');
-    return [os.homedir()];
+    console.warn(`[config] No valid BROWSE_ROOTS entries found; falling back to: ${fallbackRoot}`);
+    return [fallbackRoot];
   }
   return valid;
 }
@@ -88,17 +90,30 @@ function requireAuthToken(): string {
   return value;
 }
 
+const resolvedWorkDir = process.env.WORK_DIR
+  ? path.resolve(process.env.WORK_DIR)
+  : path.resolve(__dirname, '..', 'workspace');
+
+function resolveInternalControlPort(): number {
+  const raw = process.env.INTERNAL_CONTROL_PORT;
+  if (raw !== undefined && raw !== '') {
+    const parsed = parseInt(raw, 10);
+    // Deliberately not `parsed || fallback` - that would treat an explicit "0" (ephemeral port,
+    // used by tests) as falsy and silently ignore it in favor of the default.
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return parseInt(process.env.PORT ?? '5219', 10) + 1;
+}
+
 export const config: ServerConfig = {
   port: parseInt(process.env.PORT ?? '5219', 10),
   authToken: requireAuthToken(),
   copilotCommand: process.env.COPILOT_COMMAND ?? 'copilot',
   model: process.env.COPILOT_MODEL ?? '',
-  workDir: process.env.WORK_DIR
-    ? path.resolve(process.env.WORK_DIR)
-    : path.resolve(__dirname, '..', 'workspace'),
-  browseRoots: resolveBrowseRoots(),
+  workDir: resolvedWorkDir,
+  browseRoots: resolveBrowseRoots(resolvedWorkDir),
   sessionMetaFilePath: process.env.SESSION_META_FILE
     ? path.resolve(process.env.SESSION_META_FILE)
     : path.resolve(__dirname, '..', 'data', 'session-meta.json'),
-  internalControlPort: parseInt(process.env.INTERNAL_CONTROL_PORT ?? '', 10) || parseInt(process.env.PORT ?? '5219', 10) + 1,
+  internalControlPort: resolveInternalControlPort(),
 };

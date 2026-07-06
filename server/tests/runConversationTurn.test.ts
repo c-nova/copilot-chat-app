@@ -1,4 +1,3 @@
-import * as os from 'os';
 import * as path from 'path';
 
 jest.mock('../src/copilotRunner', () => ({
@@ -40,7 +39,9 @@ describe('runConversationTurn', () => {
   it('uses the requested cwd for a brand-new session when it is within the allowed roots', async () => {
     mockedGetSessionCwd.mockReturnValue(null);
     const id = uniqueId('new-allowed');
-    const cwd = path.join(os.homedir(), 'some-subfolder');
+    // Default BROWSE_ROOTS (unset in tests) is now just config.workDir, not the home directory -
+    // so the requested path needs to be a subfolder of workDir to be considered "allowed" here.
+    const cwd = path.join(config.workDir, 'some-subfolder');
     await runConversationTurn(id, 'hello', { requestedCwd: cwd });
     expect(mockedRunCopilotTurn).toHaveBeenCalledWith(id, 'hello', expect.any(Function), expect.any(Function), undefined, cwd);
   });

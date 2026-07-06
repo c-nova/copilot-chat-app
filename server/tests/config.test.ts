@@ -43,11 +43,14 @@ describe('config BROWSE_ROOTS resolution', () => {
     jest.resetModules();
   });
 
-  it('defaults to the home directory when BROWSE_ROOTS is unset', () => {
+  it('defaults to workDir (not the home directory) when BROWSE_ROOTS is unset', () => {
     delete process.env.BROWSE_ROOTS;
     jest.resetModules();
     const { config } = require('../src/config');
-    expect(config.browseRoots).toEqual([os.homedir()]);
+    // Defaulting to the home directory would surface every Copilot CLI session ever run on the
+    // machine (including unrelated tools) in this app's Sessions list - see config.ts comments.
+    expect(config.browseRoots).toEqual([config.workDir]);
+    expect(config.browseRoots).not.toEqual([os.homedir()]);
   });
 
   it('parses a comma-separated list of existing directories', () => {
@@ -64,10 +67,10 @@ describe('config BROWSE_ROOTS resolution', () => {
     expect(config.browseRoots).toEqual([path.resolve(__dirname)]);
   });
 
-  it('falls back to the home directory when every entry is invalid', () => {
+  it('falls back to workDir when every configured entry is invalid', () => {
     process.env.BROWSE_ROOTS = '/this/path/does/not/exist/hopefully,/nor/does/this/one';
     jest.resetModules();
     const { config } = require('../src/config');
-    expect(config.browseRoots).toEqual([os.homedir()]);
+    expect(config.browseRoots).toEqual([config.workDir]);
   });
 });
