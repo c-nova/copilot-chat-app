@@ -16,6 +16,13 @@ export interface ClientChatMessage {
   text: string;
   /** Images/files pasted or attached alongside the prompt (PBI-019). */
   attachments?: AttachmentPayload[];
+  /**
+   * Working directory to create a brand-new session in (folder-browse/git-clone flow). Only used
+   * the first time a given conversationId is seen; ignored (server uses the session's own recorded
+   * cwd instead) when resuming an existing session. Must fall within the server's BROWSE_ROOTS or
+   * it's rejected in favor of the default workspace directory.
+   */
+  cwd?: string;
 }
 
 export interface ClientMcpListMessage {
@@ -111,6 +118,8 @@ export interface ServerMcpResultMessage {
 
 export interface SessionSummaryDto {
   id: string;
+  /** Working directory this session was created with. */
+  cwd: string;
   summary: string;
   createdAt: string;
   updatedAt: string;

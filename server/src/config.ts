@@ -1,4 +1,6 @@
 import * as dotenv from 'dotenv';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 dotenv.config();
 
@@ -11,11 +13,45 @@ export interface ServerConfig {
   /** Optional model override passed to the CLI (e.g. "gpt-5.4"). Empty = let CLI decide. */
   model: string;
   /**
-   * Working directory the Copilot CLI operates in (file edits, shell commands run here).
-   * Defaults to a "workspace" folder next to the server so the agent can't wander the whole filesystem
-   * by default. Set WORK_DIR to an absolute path to point it elsewhere.
+   * Default working directory for brand-new sessions that don't specify one (file edits, shell
+   * commands run here). Defaults to a "workspace" folder next to the server so the agent can't
+   * wander the whole filesystem by default. Set WORK_DIR to an absolute path to point it elsewhere.
    */
   workDir: string;
+  /**
+   * Allow-list of directories a client may pick as a new session's working directory (via the
+   * folder-browsing/git-clone flow), and the boundary used to filter which past CLI sessions show
+   * up in the Sessions list. Configured via a comma-separated BROWSE_ROOTS env var; each entry is
+   * resolved to an absolute path and must exist as a directory, or it's skipped with a warning.
+   * Falls back to the user's home directory if unset or if every configured entry is invalid.
+   */
+  browseRoots: string[];
+}
+
+function resolveBrowseRoots(): string[] {
+  const raw = process.env.BROWSE_ROOTS;
+  const candidates = raw
+    ? raw
+        .split(',')
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .map((p) => path.resolve(p))
+    : [os.homedir()];
+
+  const valid = candidates.filter((p) => {
+    try {
+      return fs.statSync(p).isDirectory();
+    } catch {
+      console.warn(`[config] BROWSE_ROOTS entry does not exist or is not a directory, skipping: ${p}`);
+      return false;
+    }
+  });
+
+  if (valid.length === 0) {
+    console.warn('[config] No valid BROWSE_ROOTS entries found; falling back to the home directory.');
+    return [os.homedir()];
+  }
+  return valid;
 }
 
 function requireEnv(name: string, fallback?: string): string {
@@ -48,4 +84,5 @@ export const config: ServerConfig = {
   workDir: process.env.WORK_DIR
     ? path.resolve(process.env.WORK_DIR)
     : path.resolve(__dirname, '..', 'workspace'),
+  browseRoots: resolveBrowseRoots(),
 };

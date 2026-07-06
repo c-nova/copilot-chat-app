@@ -146,10 +146,11 @@ export async function runCopilotTurn(
   onDelta: DeltaHandler,
   onToolEvent: ToolEventHandler,
   attachments?: AttachmentInput[],
+  cwd?: string,
 ): Promise<TurnResult> {
   const tempFiles = attachments && attachments.length > 0 ? await writeTempAttachments(attachments) : [];
   try {
-    return await runCopilotTurnCore(sessionId, message, onDelta, onToolEvent, tempFiles);
+    return await runCopilotTurnCore(sessionId, message, onDelta, onToolEvent, tempFiles, cwd);
   } finally {
     if (tempFiles.length > 0) {
       await cleanupTempFiles(tempFiles);
@@ -163,6 +164,7 @@ function runCopilotTurnCore(
   onDelta: DeltaHandler,
   onToolEvent: ToolEventHandler,
   attachmentPaths: string[],
+  cwd?: string,
 ): Promise<TurnResult> {
   return new Promise((resolve, reject) => {
     const args = [
@@ -170,7 +172,7 @@ function runCopilotTurnCore(
       '--allow-all-tools',
       '--allow-all-paths',
       '--allow-all-urls',
-      '-C', config.workDir,
+      '-C', cwd || config.workDir,
       '--output-format', 'json',
       '-s',
       `--session-id=${sessionId}`,

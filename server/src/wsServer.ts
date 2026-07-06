@@ -1,11 +1,13 @@
 import * as crypto from 'crypto';
+import * as path from 'path';
 import { IncomingMessage } from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { config } from './config';
 import { runCopilotTurn } from './copilotRunner';
 import { addMcpServer, listMcpServers, removeMcpServer } from './mcpManager';
+import { isPathAllowed } from './pathAccess';
 import { ClientMessage, ServerMessage } from './protocol';
-import { getSessionHistory, listWorkspaceSessions } from './sessionHistory';
+import { getSessionCwd, getSessionHistory, listSessions } from './sessionHistory';
 
 function send(ws: WebSocket, msg: ServerMessage) {
   if (ws.readyState === WebSocket.OPEN) {
@@ -54,8 +56,10 @@ export function createChatServer(): WebSocketServer {
     }
   }});
 
-  // conversationId (client-chosen) -> copilot CLI session id (server-generated, stable per conversation)
-  const conversationSessions = new Map<string, string>();
+  // conversationId (client-chosen) -> { sessionId, cwd } this conversation is bound to. sessionId is
+  // currently always equal to conversationId (the CLI creates a new session if it doesn't exist yet,
+  // or resumes it if it does), but cwd must be resolved once per conversation and then stays fixed.
+  const conversationSessions = new Map<string, { sessionId: string; cwd: string }>();
   // Serialize turns per conversation so we never run two overlapping CLI invocations for the same session id.
   const conversationLocks = new Map<string, Promise<void>>();
 
@@ -120,7 +124,7 @@ export function createChatServer(): WebSocketServer {
 
       if (msg.type === 'sessions:list') {
         try {
-          const sessions = listWorkspaceSessions(config.workDir);
+          const sessions = listSessions([...config.browseRoots, config.workDir]);
           send(ws, { type: 'sessions:list-result', requestId: msg.requestId, ok: true, sessions });
         } catch (err: any) {
           send(ws, { type: 'sessions:list-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
@@ -152,14 +156,32 @@ export function createChatServer(): WebSocketServer {
           // The client-provided conversationId doubles directly as the Copilot CLI --session-id:
           // the CLI creates a new session if it doesn't exist yet, or resumes it if it does. This
           // lets the client "resume" any past session just by reusing its id as the conversationId.
-          let sessionId = conversationSessions.get(conversationId);
-          if (!sessionId) {
-            sessionId = conversationId;
-            conversationSessions.set(conversationId, sessionId);
+          let state = conversationSessions.get(conversationId);
+          if (!state) {
+            const sessionId = conversationId;
+            // Prefer the cwd the CLI itself already recorded for this session id (e.g. resuming one
+            // picked from the Sessions list, possibly after a server restart) over anything the client
+            // sends - this guarantees a resume can never silently run in a different folder than the
+            // session's own history.
+            const existingCwd = getSessionCwd(sessionId);
+            const requestedCwd = msg.cwd ? path.resolve(msg.cwd) : undefined;
+            let cwd: string;
+            if (existingCwd) {
+              cwd = existingCwd;
+            } else if (requestedCwd && isPathAllowed(requestedCwd, config.browseRoots)) {
+              cwd = requestedCwd;
+            } else {
+              if (requestedCwd) {
+                console.warn(`[wsServer] Rejected cwd outside allowed roots for new session ${sessionId}: ${requestedCwd}`);
+              }
+              cwd = config.workDir;
+            }
+            state = { sessionId, cwd };
+            conversationSessions.set(conversationId, state);
           }
           try {
             const result = await runCopilotTurn(
-              sessionId,
+              state.sessionId,
               text,
               (delta) => {
                 send(ws, { type: 'delta', conversationId, text: delta });
@@ -176,6 +198,7 @@ export function createChatServer(): WebSocketServer {
                 });
               },
               attachments,
+              state.cwd,
             );
             send(ws, { type: 'final', conversationId, text: result.finalText });
           } catch (err: any) {
