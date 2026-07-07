@@ -1,3 +1,4 @@
+using CopilotChatApp.Models;
 using CopilotChatApp.Services;
 
 namespace CopilotChatApp.Views;
@@ -6,11 +7,14 @@ public partial class SettingsPage : ContentPage
 {
     readonly ChatClientService _client;
 
+    /// <summary>The profile currently loaded into the Name/URL/Token fields below the list. Null
+    /// means "adding a brand-new server" rather than editing an existing one.</summary>
+    ServerProfile? _editingProfile;
+
     public SettingsPage(ChatClientService client)
     {
         InitializeComponent();
         _client = client;
-        ServerUrlEntry.Text = SettingsService.ServerUrl;
         FontSizeSlider.Value = SettingsService.ChatFontSize;
         UpdateFontSizeLabel(SettingsService.ChatFontSize);
     }
@@ -18,15 +22,138 @@ public partial class SettingsPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-        AuthTokenEntry.Text = await SettingsService.GetAuthTokenAsync();
+        LoadProfilesList();
+
+        var active = SettingsService.GetActiveProfile();
+        if (active is not null)
+        {
+            await SelectProfileForEditingAsync(active);
+        }
+        else
+        {
+            StartAddingNewProfile();
+        }
+    }
+
+    /// <summary>Rebuilds the list of configured server profiles (see ProfilesList in the XAML) -
+    /// plain code-behind-built rows rather than a CollectionView, since a ScrollView + CollectionView
+    /// combination has its own known height/virtualization quirks on some platforms and profile
+    /// counts here are always small enough that virtualization buys nothing.</summary>
+    void LoadProfilesList()
+    {
+        ProfilesList.Children.Clear();
+        var activeId = SettingsService.ActiveProfileId;
+
+        foreach (var profile in SettingsService.GetProfiles())
+        {
+            var isActive = profile.Id == activeId;
+
+            var nameLabel = new Label
+            {
+                Text = (isActive ? "✓ " : "") + (string.IsNullOrWhiteSpace(profile.Name) ? "(no name)" : profile.Name),
+                FontAttributes = isActive ? FontAttributes.Bold : FontAttributes.None,
+            };
+            var urlLabel = new Label
+            {
+                Text = string.IsNullOrWhiteSpace(profile.Url) ? "(no URL set)" : profile.Url,
+                FontSize = 12,
+                TextColor = Colors.Gray,
+                LineBreakMode = LineBreakMode.TailTruncation,
+            };
+            var textStack = new VerticalStackLayout { Spacing = 2, Children = { nameLabel, urlLabel } };
+
+            var deleteButton = new Button
+            {
+                Text = "削除",
+                TextColor = Colors.Red,
+                BackgroundColor = Colors.Transparent,
+                VerticalOptions = LayoutOptions.Center,
+            };
+            deleteButton.Clicked += async (_, _) => await OnDeleteProfileClickedAsync(profile);
+
+            var grid = new Grid { ColumnDefinitions = new ColumnDefinitionCollection { new(GridLength.Star), new(GridLength.Auto) } };
+            grid.Add(textStack, 0);
+            grid.Add(deleteButton, 1);
+
+            var border = new Border
+            {
+                StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 10 },
+                Stroke = isActive ? Colors.CornflowerBlue : Colors.LightGray,
+                StrokeThickness = isActive ? 2 : 1,
+                Padding = 10,
+                Content = grid,
+            };
+            var tap = new TapGestureRecognizer();
+            tap.Tapped += async (_, _) => await SelectProfileForEditingAsync(profile);
+            border.GestureRecognizers.Add(tap);
+
+            ProfilesList.Children.Add(border);
+        }
+    }
+
+    async Task SelectProfileForEditingAsync(ServerProfile profile)
+    {
+        _editingProfile = profile;
+        EditingProfileLabel.Text = $"編集中: {(string.IsNullOrWhiteSpace(profile.Name) ? "(no name)" : profile.Name)}";
+        ProfileNameEntry.Text = profile.Name;
+        ServerUrlEntry.Text = profile.Url;
+        AuthTokenEntry.Text = await SettingsService.GetProfileAuthTokenAsync(profile.Id);
+    }
+
+    void StartAddingNewProfile()
+    {
+        _editingProfile = null;
+        EditingProfileLabel.Text = "新しいサーバーを追加";
+        ProfileNameEntry.Text = string.Empty;
+        ServerUrlEntry.Text = string.Empty;
+        AuthTokenEntry.Text = string.Empty;
+    }
+
+    void OnAddProfileClicked(object? sender, EventArgs e) => StartAddingNewProfile();
+
+    async Task OnDeleteProfileClickedAsync(ServerProfile profile)
+    {
+        var confirm = await DisplayAlert("サーバーを削除", $"「{profile.Name}」をこのアプリの設定から削除しますか?(サーバー自体やセッション履歴は消えません)", "削除", "キャンセル");
+        if (!confirm) return;
+
+        var wasEditing = _editingProfile?.Id == profile.Id;
+        SettingsService.RemoveProfile(profile.Id);
+        LoadProfilesList();
+
+        if (wasEditing)
+        {
+            var active = SettingsService.GetActiveProfile();
+            if (active is not null) await SelectProfileForEditingAsync(active);
+            else StartAddingNewProfile();
+        }
     }
 
     async void OnSaveClicked(object? sender, EventArgs e)
     {
-        SettingsService.ServerUrl = ServerUrlEntry.Text?.Trim() ?? string.Empty;
+        var name = ProfileNameEntry.Text?.Trim();
+        if (string.IsNullOrEmpty(name)) name = "Server";
+        var url = ServerUrlEntry.Text?.Trim() ?? string.Empty;
+
+        ServerProfile profile;
+        if (_editingProfile is null)
+        {
+            profile = SettingsService.AddProfile(name, url);
+        }
+        else
+        {
+            profile = _editingProfile;
+            profile.Name = name;
+            profile.Url = url;
+            SettingsService.UpdateProfile(profile);
+        }
+        // Saving from this screen means "use this server now" - matches the pre-multi-server Save
+        // button's behavior of immediately switching to whatever was just entered.
+        SettingsService.ActiveProfileId = profile.Id;
+        _editingProfile = profile;
+
         try
         {
-            await SettingsService.SetAuthTokenAsync(AuthTokenEntry.Text?.Trim() ?? string.Empty);
+            await SettingsService.SetProfileAuthTokenAsync(profile.Id, AuthTokenEntry.Text?.Trim() ?? string.Empty);
         }
         catch (Exception ex)
         {
@@ -36,6 +163,7 @@ public partial class SettingsPage : ContentPage
             return;
         }
 
+        LoadProfilesList();
         await TryConnectAsync();
     }
 

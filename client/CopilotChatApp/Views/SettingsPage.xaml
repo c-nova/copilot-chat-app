@@ -8,7 +8,24 @@
     <ScrollView>
         <VerticalStackLayout Padding="20" Spacing="16">
 
-            <Label Text="Server URL" FontAttributes="Bold" />
+            <Label Text="サーバー" FontAttributes="Bold" FontSize="18" />
+            <!-- Populated in code-behind (SettingsPage.xaml.cs LoadProfilesList) - a handful of rows
+                 built manually is simpler here than a CollectionView inside a ScrollView (which has
+                 its own known height/virtualization quirks on some platforms) since profile counts
+                 are always small. Tap a row to edit it below; ✓ marks the currently active one. -->
+            <VerticalStackLayout x:Name="ProfilesList" Spacing="8" />
+            <Button Text="+ 新しいサーバーを追加" Clicked="OnAddProfileClicked" />
+
+            <BoxView HeightRequest="1"
+                     Margin="0,4"
+                     BackgroundColor="{AppThemeBinding Light={StaticResource Gray200}, Dark={StaticResource Gray600}}" />
+
+            <Label x:Name="EditingProfileLabel" Text="編集中" FontAttributes="Bold" FontSize="16" />
+
+            <Label Text="Name" FontAttributes="Bold" />
+            <Entry x:Name="ProfileNameEntry" Placeholder="e.g. Mac mini" />
+
+            <Label Text="Server URL" FontAttributes="Bold" Margin="0,12,0,0" />
             <Entry x:Name="ServerUrlEntry" Placeholder="ws://192.168.1.10:5219" Keyboard="Url" />
             <Label FontSize="12" TextColor="Gray"
                    Text="The address of the copilot-chat-server running on your PC/Mac. Use wss:// if the server is behind TLS." />
