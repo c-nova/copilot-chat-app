@@ -64,6 +64,9 @@ dotnet build -f net10.0-ios                   # iOS (must be built/run on a Mac 
 - **macOS / iOS**: Apple platform builds require Xcode and must be built on a Mac (MAUI's iOS/Mac Catalyst
   toolchain needs the Apple SDKs). Open `CopilotChatApp.csproj` in Visual Studio (Windows, with "Pair to Mac")
   or in Visual Studio / `dotnet build` directly on a Mac to produce the `.app`/`.ipa`.
+- **iOS on a physical device** needs more than just `dotnet build` — a provisioning profile, a signing
+  identity, and a USB-connected device with Developer Mode on. See [USAGE.md](USAGE.md#ios) for the full
+  step-by-step flow (a free Apple ID "Personal Team" is enough, no paid Apple Developer Program required).
 
 ### Quick build scripts
 
@@ -220,6 +223,9 @@ dotnet build -f net10.0-ios                   # iOS(Xcode+署名設定入りのM
   (MAUIのiOS/Mac CatalystツールチェインはApple SDKを必要とします)。Visual Studio(Windows、
   「Macとペア設定」使用)で `CopilotChatApp.csproj` を開くか、Mac上で直接 Visual Studio /
   `dotnet build` を使って `.app`/`.ipa` を生成してください。
+- **iOS実機デプロイ**は `dotnet build` だけでは完結しません — プロビジョニングプロファイル・署名ID・
+  USB接続+デベロッパモード有効化が必要です。詳しい手順は [USAGE.md](USAGE.md#ios-1) を参照してください
+  (無料のApple ID「Personal Team」で十分で、有償のApple Developer Programは不要です)。
 
 ### 簡単ビルドスクリプト
 

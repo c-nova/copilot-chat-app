@@ -70,14 +70,48 @@ dotnet run -f net10.0-maccatalyst
 
 ### iOS
 
-Requires a Mac + Xcode + Apple Developer signing setup.
+Requires a Mac + Xcode + an Apple Developer signing identity. A free Apple ID "Personal Team" (no paid
+Apple Developer Program membership) is enough for on-device testing, but the full flow needs a few manual,
+one-time steps that `dotnet build` alone can't do:
 
-```bash
-cd copilot-chat-app/client/CopilotChatApp
-dotnet build -f net10.0-ios -t:Run -p:_DeviceName=:v2:udid=<connected device UDID>
-```
+1. **Generate a provisioning profile (first time only).** `dotnet build` can't register an App ID or create
+   a provisioning profile on its own — the quickest way is to let Xcode do it once:
+   - Xcode → File → New → Project → iOS App
+   - Team: your Apple ID (Personal Team)
+   - **Organization Identifier**: must match this project's bundle id prefix, e.g. `com.companyname`, so the
+     generated bundle id is `com.companyname.copilotchatapp` (check `<ApplicationId>` in
+     `CopilotChatApp.csproj` if this has been customized)
+   - Select your iPhone/iPad as the run destination and press ▶ once — this registers the App ID and
+     installs a provisioning profile on the device. Trust the developer when prompted on the device
+     (Settings → General → VPN & Device Management).
+   - A free Personal Team's provisioning profile expires after about a week — just redo this step to renew it.
+2. **Connect the device via USB.** Wi-Fi-only pairing is not reliable for `dotnet build -t:Run` (it can hang
+   indefinitely waiting to install). Enable Developer Mode on the device first (Settings → Privacy & Security
+   → Developer Mode → restart to confirm), then connect with a cable.
+3. **Find the device UDID:**
+   ```bash
+   xcrun xctrace list devices
+   ```
+4. **Build, then run**, passing your signing identity and the plain UDID (no `:v2:...` prefix — that format
+   makes the launch hang):
+   ```bash
+   cd copilot-chat-app/client/CopilotChatApp
+   dotnet build -f net10.0-ios -p:RuntimeIdentifier=ios-arm64 \
+     -p:CodesignKey="Apple Development: you@example.com (TEAMID)" \
+     -p:CodesignProvision="Automatic"
+   dotnet build -t:Run -f net10.0-ios -p:RuntimeIdentifier=ios-arm64 \
+     -p:CodesignKey="Apple Development: you@example.com (TEAMID)" \
+     -p:CodesignProvision="Automatic" \
+     -p:_DeviceName=00008132-0018513A0C79001C
+   ```
+   List your signing identities with `security find-identity -v -p codesigning`.
 
-Or select a simulator/device and run from Visual Studio / Visual Studio for Mac.
+Or open the project in Visual Studio for Mac and pick your device from the run destination dropdown, which
+handles signing/UDID selection for you.
+
+> If you edit code, rebuild, and the app's behavior doesn't change, delete `bin/Debug/net10.0-ios` and
+> `obj/Debug/net10.0-ios` first — MSBuild's incremental build can silently skip recompiling and just
+> reinstall the same stale binary.
 
 ### Quick build scripts
 
@@ -291,14 +325,48 @@ dotnet run -f net10.0-maccatalyst
 
 ### iOS
 
-Mac + Xcode + Apple Developer署名設定が必要です。
+Mac + Xcode + Apple Developer署名設定が必要です。無料のApple ID「Personal Team」(有償のApple Developer
+Program未加入)でも実機テストは可能ですが、`dotnet build` だけでは完結しない手動の初回セットアップが
+あります:
 
-```bash
-cd copilot-chat-app/client/CopilotChatApp
-dotnet build -f net10.0-ios -t:Run -p:_DeviceName=:v2:udid=<接続した実機のUDID>
-```
+1. **プロビジョニングプロファイルを生成する(初回のみ)。** `dotnet build` だけではApp ID登録や
+   プロビジョニングプロファイルの自動生成はできないので、Xcodeに一度やらせるのが一番早いです:
+   - Xcode → File → New → Project → iOS App
+   - Team: 自分のApple ID(Personal Team)
+   - **Organization Identifier**: このプロジェクトのBundle IDプレフィックスと一致させる必要があります。
+     例: `com.companyname`(生成されるBundle IDが `com.companyname.copilotchatapp` になるように。
+     カスタマイズしている場合は `CopilotChatApp.csproj` の `<ApplicationId>` を確認してください)
+   - 実機(iPhone/iPad)を実行先に選んで▶を一度押す → App ID登録とプロビジョニングプロファイルの
+     デバイスへのインストールが行われます。初回はデバイス側で開発者を信頼してください
+     (設定 → 一般 → VPNとデバイス管理)。
+   - 無料のPersonal Teamのプロファイルは約1週間で失効するので、期限が切れたらこの手順をやり直すだけでOKです。
+2. **実機をUSBケーブルで接続する。** Wi-Fiのみのペアリングだと `dotnet build -t:Run` のインストール待ちが
+   無限にハングすることがあります。先にデバイス側でデベロッパモードを有効化(設定 → プライバシーとセキュリティ
+   → デベロッパモード → 再起動して確認)してから、ケーブルで接続してください。
+3. **実機のUDIDを確認する:**
+   ```bash
+   xcrun xctrace list devices
+   ```
+4. **ビルドしてから実行**。署名IDとプレーンなUDID(`:v2:...`のような接頭辞を付けると起動がハングします)を
+   渡します:
+   ```bash
+   cd copilot-chat-app/client/CopilotChatApp
+   dotnet build -f net10.0-ios -p:RuntimeIdentifier=ios-arm64 \
+     -p:CodesignKey="Apple Development: you@example.com (TEAMID)" \
+     -p:CodesignProvision="Automatic"
+   dotnet build -t:Run -f net10.0-ios -p:RuntimeIdentifier=ios-arm64 \
+     -p:CodesignKey="Apple Development: you@example.com (TEAMID)" \
+     -p:CodesignProvision="Automatic" \
+     -p:_DeviceName=00008132-0018513A0C79001C
+   ```
+   署名IDの一覧は `security find-identity -v -p codesigning` で確認できます。
 
-または Visual Studio / Visual Studio for Mac でシミュレータ/実機を選んで実行してください。
+または Visual Studio for Mac でプロジェクトを開き、実行先ドロップダウンから実機を選べば署名/UDID選択は
+VS側がやってくれます。
+
+> コードを直してリビルドしても挙動が変わらない場合は、先に `bin/Debug/net10.0-ios` と
+> `obj/Debug/net10.0-ios` を削除してください。MSBuildの増分ビルドが再コンパイルを黙ってスキップし、
+> 古いバイナリを再インストールしているだけのことがあります。
 
 ### 簡単ビルドスクリプト
 
