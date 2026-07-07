@@ -7,6 +7,7 @@ import { AttachmentInput, DeltaHandler, runCopilotTurn, ToolEventHandler, TurnRe
 import { gitClone, listDir } from './fsBrowser';
 import { addMcpServer, listMcpServers, removeMcpServer } from './mcpManager';
 import { isPathAllowed } from './pathAccess';
+import { notifyReplyReady } from './notify';
 import { ClientMessage, ServerMessage } from './protocol';
 import { getSessionCwd, getSessionHistory, listSessions, searchSessions } from './sessionHistory';
 import { getSessionMeta, setSessionArchived, setSessionLabel } from './sessionMeta';
@@ -334,6 +335,9 @@ export function createChatServer(): WebSocketServer {
             }),
         });
         send(ws, { type: 'final', conversationId, text: result.finalText });
+        // Best-effort/fire-and-forget: never let a notification failure delay or affect the
+        // response the client already received above.
+        void notifyReplyReady(result.finalText);
       } catch (err: any) {
         send(ws, { type: 'error', conversationId, message: err?.message ?? String(err) });
       }

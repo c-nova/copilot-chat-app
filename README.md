@@ -122,6 +122,10 @@ to start a fresh Copilot CLI session (it'll ask which server, if you've configur
 - **Biometric/passcode lock**: on Mac Catalyst and Windows, the app can require Face ID / Touch ID / Windows
   Hello (or device passcode) to unlock after being backgrounded, protecting the saved Auth Token(s).
 - Adjustable chat font size, from the Settings page - applies immediately, even to already-visible messages.
+- **(Experimental) Push notification when Copilot replies**: set `NTFY_TOPIC` in `server/.env` to get a push
+  notification via [ntfy](https://ntfy.sh) whenever a chat turn finishes - useful since real Apple/Google push
+  would otherwise require this app to have its own paid developer account credentials. See
+  [USAGE.md](USAGE.md#experimental-push-notifications-via-ntfy) for setup.
 
 ## Multi-server support
 
@@ -292,6 +296,10 @@ dotnet build -f net10.0-ios                   # iOS(Xcode+署名設定入りのM
   Face ID / Touch ID / Windows Hello(またはデバイスのパスコード)でのロック解除を要求し、
   保存済みのAuth Token(複数サーバー分)を保護できます
 - Settings画面からチャットのフォントサイズを調整可能(既に表示中のメッセージにも即座に反映されます)
+- **(実験的機能) Copilotが返信したらプッシュ通知**: `server/.env` に `NTFY_TOPIC` を設定すると、
+  チャットの返信が完了するたびに[ntfy](https://ntfy.sh)経由でプッシュ通知が届きます。本物のApple/Google
+  プッシュを自前で実装するには有償のデベロッパーアカウントが必要になるところを回避できます。
+  セットアップ方法は[USAGE.md](USAGE.md#実験的機能-ntfy経由のプッシュ通知)を参照してください。
 
 ## マルチサーバー対応について
 

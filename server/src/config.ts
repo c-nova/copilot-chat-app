@@ -40,6 +40,17 @@ export interface ServerConfig {
    * Always bound to 127.0.0.1 only, never exposed on the network. Defaults to PORT+1.
    */
   internalControlPort: number;
+  /**
+   * EXPERIMENTAL: optional ntfy (https://ntfy.sh) topic to push a best-effort notification to
+   * whenever a chat turn finishes - lets you know Copilot replied without needing the client app
+   * open, without this server ever needing its own Apple/Google push credentials (ntfy's own
+   * server forwards to APNs/FCM on your behalf). Empty/unset = feature disabled entirely (default).
+   * Treat the topic name like a password - anyone who knows it can publish to/read it on a public
+   * ntfy.sh server, so use a long random string, not something guessable.
+   */
+  ntfyTopic: string;
+  /** ntfy server base URL. Defaults to the public https://ntfy.sh; override to use a self-hosted instance. */
+  ntfyServer: string;
 }
 
 function resolveBrowseRoots(fallbackRoot: string): string[] {
@@ -116,4 +127,6 @@ export const config: ServerConfig = {
     ? path.resolve(process.env.SESSION_META_FILE)
     : path.resolve(__dirname, '..', 'data', 'session-meta.json'),
   internalControlPort: resolveInternalControlPort(),
+  ntfyTopic: process.env.NTFY_TOPIC ?? '',
+  ntfyServer: (process.env.NTFY_SERVER || 'https://ntfy.sh').replace(/\/+$/, ''),
 };

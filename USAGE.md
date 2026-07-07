@@ -72,6 +72,31 @@ happens, `install-server-startup-windows.ps1` automatically falls back to a Star
 instead (`shell:startup`) - this still starts the server at login, just without the auto-restart-on-
 crash behavior a Scheduled Task gives you.
 
+### Experimental: push notifications via ntfy
+
+Real Apple/Google push notifications for your own app require a paid Apple Developer Program
+membership ($99/year) just to enable the "Push Notifications" capability - there's no way around
+that for your own app. [ntfy](https://ntfy.sh) sidesteps this: it's a free, open-source push relay
+that already has an iOS/Android app published with its own (already-paid-for) push credentials, so
+your server just sends it a plain HTTP request and ntfy handles the actual APNs/FCM delivery.
+
+To turn this on:
+
+1. Install the free **ntfy** app on your phone ([App Store](https://apps.apple.com/us/app/ntfy/id1625396347) /
+   [Google Play](https://play.google.com/store/apps/details?id=io.heckel.ntfy)).
+2. Pick a long, random topic name (treat it like a password - anyone who knows it can publish to or
+   read it on the public `ntfy.sh` server), e.g. generate one with `openssl rand -hex 16`.
+3. In the ntfy app, subscribe to that exact topic name.
+4. In `server/.env`, set `NTFY_TOPIC=<that same topic name>` and restart the server.
+
+That's it - every time a chat turn finishes, the server publishes a notification with a preview of
+the reply to that topic, and the ntfy app delivers it to your phone (and, since it's a normal iOS
+notification, it should also mirror to a paired Apple Watch by default - not independently verified
+by us, since we don't have a Watch to test with).
+
+Leave `NTFY_TOPIC` empty (the default) to disable this entirely. To use a self-hosted ntfy server
+instead of the public `ntfy.sh`, also set `NTFY_SERVER` to its base URL.
+
 ---
 
 ## 2. Use the client app
@@ -428,6 +453,34 @@ npm start
 は自動的にスタートアップフォルダのショートカット方式(`shell:startup`)にフォールバック
 します — ログイン時の自動起動は同じようにできますが、Scheduled Taskのような
 クラッシュ時の自動再起動は行われません。
+
+### 実験的機能: ntfy経由のプッシュ通知
+
+自分のアプリで本物のApple/Googleプッシュ通知を使うには、「Push Notifications」機能を
+有効化するだけでも有償のApple Developer Programメンバーシップ($99/年)が必要です —
+これはどうやっても回避できません。[ntfy](https://ntfy.sh)はこれを回避する手段で、
+無料・オープンソースのプッシュ中継サービスです。既に(ntfy運営元が費用を払って)公開済みの
+iOS/Androidアプリを使うので、こちらのサーバーは普通のHTTPリクエストを送るだけで、
+実際のAPNs/FCM配信はntfyが代行してくれます。
+
+有効化する手順:
+
+1. スマホに無料の**ntfy**アプリをインストール
+   ([App Store](https://apps.apple.com/us/app/ntfy/id1625396347) /
+   [Google Play](https://play.google.com/store/apps/details?id=io.heckel.ntfy))
+2. 長いランダムなトピック名を決める(パスワードだと思ってください — 知ってる人なら誰でも
+   公開ntfy.shサーバー上でそのトピックに publish/read できるので)。例: `openssl rand -hex 16`
+3. ntfyアプリでそのトピック名をそのまま購読する
+4. `server/.env` に `NTFY_TOPIC=<同じトピック名>` を設定してサーバーを再起動する
+
+これだけです — チャットの返信が完了するたびに、サーバーが返信内容のプレビュー付き通知を
+そのトピックにpublishし、ntfyアプリがスマホに届けてくれます(普通のiOS通知として届くので、
+ペアリング済みのApple Watchにもデフォルトでミラーリングされるはずですが、こちらは
+Apple Watchで検証できていません)。
+
+`NTFY_TOPIC` を空(デフォルト)のままにすればこの機能は完全に無効化されます。
+公開の`ntfy.sh`の代わりに自前でホストしたntfyサーバーを使いたい場合は、
+`NTFY_SERVER` にそのベースURLを設定してください。
 
 ---
 
