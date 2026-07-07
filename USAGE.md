@@ -66,6 +66,12 @@ session, not a system-wide daemon, so the server starts when you log in and gets
 automatically if it ever crashes. Logs go to `%LOCALAPPDATA%\CopilotChatServer\server.log` (Windows)
 or `~/Library/Logs/CopilotChatServer.log` (macOS).
 
+⚠️ On corporate-managed Windows PCs, Group Policy sometimes blocks standard users (even elevated
+ones) from registering Scheduled Tasks ("Access is denied" when running the script). If that
+happens, `install-server-startup-windows.ps1` automatically falls back to a Startup folder shortcut
+instead (`shell:startup`) - this still starts the server at login, just without the auto-restart-on-
+crash behavior a Scheduled Task gives you.
+
 ---
 
 ## 2. Use the client app
@@ -415,6 +421,13 @@ npm start
 紐づく仕組みなので、ログインすると起動し、クラッシュしても自動的に再起動されます。
 ログは `%LOCALAPPDATA%\CopilotChatServer\server.log`(Windows)または
 `~/Library/Logs/CopilotChatServer.log`(macOS)に出力されます。
+
+⚠️ 会社管理のWindows PCだと、Group Policyで一般ユーザー(管理者権限で実行してもダメな
+場合あり)によるScheduled Task登録がブロックされていることがあります(実行すると
+「アクセスが拒否されました」エラーになる)。その場合、`install-server-startup-windows.ps1`
+は自動的にスタートアップフォルダのショートカット方式(`shell:startup`)にフォールバック
+します — ログイン時の自動起動は同じようにできますが、Scheduled Taskのような
+クラッシュ時の自動再起動は行われません。
 
 ---
 
