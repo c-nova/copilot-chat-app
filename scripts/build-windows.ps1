@@ -13,6 +13,11 @@
     Also start the server (in a new window) and launch the Windows client (dotnet run) after
     building. Without this switch, the script only builds - nothing is started.
 
+.PARAMETER Package
+    Instead of a Debug build, publish a self-contained, standalone folder (dotnet publish,
+    Release, unpackaged/no MSIX) that can be copied to any Windows PC and run without .NET or
+    this repo installed. Can't be combined with -Run.
+
 .EXAMPLE
     ./scripts/build-windows.ps1
     Build the server and the Windows client, but don't start/run anything.
@@ -20,13 +25,23 @@
 .EXAMPLE
     ./scripts/build-windows.ps1 -Run
     Build everything, start the server in its own window, then run the Windows client.
+
+.EXAMPLE
+    ./scripts/build-windows.ps1 -Package
+    Build the server, then publish a standalone, self-contained Windows client folder.
 #>
 param(
-    [switch]$Run
+    [switch]$Run,
+    [switch]$Package
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+
+if ($Run -and $Package) {
+    Write-Error "-Run and -Package can't be used together - pick one."
+    exit 1
+}
 
 function Write-Step($message) {
     Write-Host "==> $message" -ForegroundColor Cyan
@@ -46,6 +61,26 @@ try {
 }
 finally {
     Pop-Location
+}
+
+if ($Package) {
+    Write-Step "Publishing Windows client as a standalone, self-contained folder (Release)..."
+    Push-Location "$root/client/CopilotChatApp"
+    try {
+        dotnet publish -f net10.0-windows10.0.19041.0 -c Release `
+            -p:RuntimeIdentifierOverride=win-x64 `
+            -p:WindowsPackageType=None `
+            -p:WindowsAppSDKSelfContained=true
+        $publishDir = "bin/Release/net10.0-windows10.0.19041.0/win-x64/publish"
+        Write-Host ""
+        Write-Host "Published: $root/client/CopilotChatApp/$publishDir" -ForegroundColor Green
+        Write-Host "Copy that whole folder to wherever you want to run it from - CopilotChatApp.exe" -ForegroundColor DarkGray
+        Write-Host "inside it needs nothing else installed (no .NET, no MSIX, no installer)." -ForegroundColor DarkGray
+    }
+    finally {
+        Pop-Location
+    }
+    exit 0
 }
 
 Write-Step "Building Windows client (net10.0-windows10.0.19041.0)..."
@@ -74,6 +109,8 @@ if ($Run) {
     }
 }
 else {
-    Write-Host "Run with -Run to also start the server and launch the client, e.g.:" -ForegroundColor DarkGray
+    Write-Host "Run with -Run to also start the server and launch the client, or -Package to build a" -ForegroundColor DarkGray
+    Write-Host "standalone installable folder instead, e.g.:" -ForegroundColor DarkGray
     Write-Host "  ./scripts/build-windows.ps1 -Run" -ForegroundColor DarkGray
+    Write-Host "  ./scripts/build-windows.ps1 -Package" -ForegroundColor DarkGray
 }

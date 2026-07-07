@@ -77,12 +77,14 @@ build the client for that platform:
 # Windows (PowerShell)
 ./scripts/build-windows.ps1          # build only
 ./scripts/build-windows.ps1 -Run     # build, then start the server + run the client
+./scripts/build-windows.ps1 -Package # build a standalone, self-contained folder instead (no installer/MSIX)
 ```
 
 ```bash
 # macOS
 ./scripts/build-mac.sh               # build only
 ./scripts/build-mac.sh --run          # build, then start the server + run the client
+./scripts/build-mac.sh --package      # build a distributable .pkg installer instead
 ```
 
 On first launch, open **Settings** and add a server:
@@ -238,12 +240,14 @@ dotnet build -f net10.0-ios                   # iOS(Xcode+署名設定入りのM
 # Windows (PowerShell)
 ./scripts/build-windows.ps1          # ビルドのみ
 ./scripts/build-windows.ps1 -Run     # ビルド後、サーバー起動+クライアント実行まで行う
+./scripts/build-windows.ps1 -Package # 代わりに単体で動く自己完結フォルダを生成(インストーラー/MSIXなし)
 ```
 
 ```bash
 # macOS
 ./scripts/build-mac.sh               # ビルドのみ
 ./scripts/build-mac.sh --run          # ビルド後、サーバー起動+クライアント実行まで行う
+./scripts/build-mac.sh --package      # 代わりに配布可能な.pkgインストーラーを生成
 ```
 
 初回起動時は、アプリの **Settings** を開いてサーバーを追加します:

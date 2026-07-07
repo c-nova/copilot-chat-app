@@ -179,7 +179,9 @@ handles signing/UDID selection for you.
 
 [`scripts/build-windows.ps1`](scripts/build-windows.ps1) and [`scripts/build-mac.sh`](scripts/build-mac.sh)
 install server dependencies, build the server, and build the client for that platform in one step
-(pass `-Run`/`--run` to also start the server and launch the client afterwards).
+(pass `-Run`/`--run` to also start the server and launch the client afterwards, or `-Package`/`--package`
+to produce a distributable build instead - a standalone folder on Windows, a `.pkg` installer on macOS -
+see "Installing a built copy instead of running from source" above for what to do with either one).
 
 ---
 
@@ -501,6 +503,9 @@ VS側がやってくれます。
 [`scripts/build-windows.ps1`](scripts/build-windows.ps1) と [`scripts/build-mac.sh`](scripts/build-mac.sh) を
 使うと、サーバーの依存関係インストール・ビルドと、そのプラットフォームのクライアントビルドを
 一括で行えます(`-Run`/`--run` を付けるとビルド後にサーバー起動+クライアント実行まで行います)。
+`-Package`/`--package` を付けると、代わりに配布可能なビルド(Windowsは単体フォルダ、macOSは`.pkg`
+インストーラー)を生成します — それぞれの使い方は上の「ソースからではなく、ビルド済みのものを
+インストールする」を参照してください。
 
 ---
 
