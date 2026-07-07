@@ -53,11 +53,36 @@ if [ ! -f "$SERVER_DIR/.env" ]; then
   exit 1
 fi
 
-NODE_PATH="$(command -v node)"
+# Resolve node the same way your normal interactive Terminal would, rather than trusting whatever
+# shell happens to be running this script. If multiple node installs exist on PATH (e.g. an old
+# /usr/local/bin/node left over from a previous install, alongside a newer Homebrew one), a plain
+# `command -v node` here can resolve to a DIFFERENT one than what `node --version` gives you day to
+# day, depending on which shell/PATH order launched this script (observed: bash resolving an old
+# Node 18 here while the default interactive zsh resolves a newer Homebrew Node 23) - and
+# launchd would then run the server on that wrong, possibly-too-old node forever. Forcing
+# resolution through an interactive login zsh (macOS's default shell, so it loads ~/.zshrc etc.)
+# matches what you'd get by just typing `node` in Terminal.
+NODE_PATH="$(zsh -ilc 'command -v node' 2>/dev/null | tail -1)"
+if [ -z "$NODE_PATH" ]; then
+  NODE_PATH="$(command -v node)"
+fi
 if [ -z "$NODE_PATH" ]; then
   echo "node not found on PATH." >&2
   exit 1
 fi
+step "Using node: $NODE_PATH ($("$NODE_PATH" --version 2>&1))"
+if [ "$(command -v node 2>/dev/null)" != "$NODE_PATH" ] && command -v node >/dev/null 2>&1; then
+  echo "  (Note: this differs from what 'command -v node' resolves to in the current shell -" >&2
+  echo "  $(command -v node). Multiple node installs detected; using the interactive-zsh one above.)" >&2
+fi
+
+# LaunchAgents run with a minimal PATH (just /usr/bin:/bin:/usr/sbin:/sbin) - NOT your shell's full
+# PATH - so the server's own child process spawns (running the `copilot` CLI itself) would fail
+# with "spawn copilot ENOENT" even though `copilot` works fine when you run the server manually
+# from a terminal. Explicitly set PATH to node's own directory (where `copilot` almost certainly
+# also lives, e.g. Homebrew's /opt/homebrew/bin) plus the standard system dirs.
+NODE_DIR="$(dirname "$NODE_PATH")"
+LAUNCHD_PATH="$NODE_DIR:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 step "Writing $PLIST..."
 mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
@@ -75,6 +100,11 @@ cat > "$PLIST" <<EOF
     </array>
     <key>WorkingDirectory</key>
     <string>$SERVER_DIR</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>$LAUNCHD_PATH</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
