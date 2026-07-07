@@ -88,16 +88,29 @@ public partial class HomePage : ContentPage
         LoadingLabel.IsVisible = true;
         try
         {
-            // Fan out to every configured server in parallel and merge - one offline/misconfigured
-            // server shouldn't block the others from showing (federated design: each server is
-            // independent, so a failure here is scoped to just that profile's sessions).
+            // Fan out to every configured server in parallel, but DON'T wait for all of them
+            // before showing anything (Task.WhenAll would let one slow/offline server hold the
+            // whole screen hostage) - instead, process each one as it completes via Task.WhenAny
+            // and re-render incrementally, so fast/reachable servers' sessions appear immediately
+            // while a slow or unreachable one is still being given up on in the background.
             _serverInfoByProfileId.Clear();
-            var perProfileResults = await Task.WhenAll(profiles.Select(p => FetchProfileSessionsAsync(p)));
+            _unreachableProfileIds.Clear();
             _allSessions.Clear();
-            foreach (var sessions in perProfileResults) _allSessions.AddRange(sessions);
-            _allSessions.Sort((a, b) => string.CompareOrdinal(b.UpdatedAt, a.UpdatedAt));
-            ApplyArchiveFilter();
-            RefreshServerInfoSummary(profiles);
+            var configuredProfiles = profiles.Where(p => !string.IsNullOrWhiteSpace(p.Url)).ToList();
+            RefreshServerInfoSummary(profiles); // shows every configured server as "connecting…" (⋯) up front
+
+            var pendingByTask = configuredProfiles.ToDictionary(p => FetchProfileSessionsAsync(p), p => p);
+            var remaining = new List<Task<List<SessionSummary>>>(pendingByTask.Keys);
+            while (remaining.Count > 0)
+            {
+                var finished = await Task.WhenAny(remaining);
+                remaining.Remove(finished);
+                var sessions = await finished; // already completed; FetchProfileSessionsAsync swallows its own errors
+                _allSessions.AddRange(sessions);
+                _allSessions.Sort((a, b) => string.CompareOrdinal(b.UpdatedAt, a.UpdatedAt));
+                ApplyArchiveFilter();
+                RefreshServerInfoSummary(profiles);
+            }
         }
         finally
         {
@@ -107,22 +120,49 @@ public partial class HomePage : ContentPage
         }
     }
 
+    /// <summary>Re-runs the whole aggregation fetch on demand (toolbar 🔄) - useful after a server
+    /// that was unreachable last time has come back up, without needing to leave and re-enter this
+    /// page.</summary>
+    async void OnRefreshClicked(object? sender, EventArgs e) => await RefreshAsync();
+
     /// <summary>One ServerInfo per successfully-reached profile from the most recent refresh (see
     /// RefreshServerInfoSummary) - cleared and rebuilt at the top of every RefreshAsync.</summary>
     readonly Dictionary<string, ServerInfo> _serverInfoByProfileId = new();
 
+    /// <summary>Profiles that failed to connect (or failed to list sessions) on the most recent
+    /// refresh - rendered as a grayed-out, non-tappable chip in RefreshServerInfoSummary rather than
+    /// silently disappearing, so the user can see at a glance which configured server is down.
+    /// Cleared and rebuilt at the top of every RefreshAsync.</summary>
+    readonly HashSet<string> _unreachableProfileIds = new();
+
     /// <summary>Fetches one profile's server info + sessions, tags each session with
     /// ProfileId/ProfileName/OsGlyph, and swallows (logs) any failure - an offline server just
     /// contributes zero sessions rather than blocking the whole aggregated refresh, matching the
-    /// federated design's "each server is independent" principle.</summary>
+    /// federated design's "each server is independent" principle. Uses a short, bounded connect
+    /// attempt (not the full ~30s-patient ConnectWithRetryAsync used for user-initiated actions
+    /// like opening a session) so one unreachable server only costs this screen a few seconds
+    /// rather than holding up every other server's sessions too.</summary>
     async Task<List<SessionSummary>> FetchProfileSessionsAsync(ServerProfile profile)
     {
         if (string.IsNullOrWhiteSpace(profile.Url)) return new List<SessionSummary>();
+        var client = GetOrCreateClient(profile.Id);
+        if (!client.IsConnected)
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+                await client.ConnectWithRetryAsync(profile.Url, await SettingsService.GetProfileAuthTokenAsync(profile.Id), maxAttempts: 3, cts.Token);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[HomePage] '{profile.Name}' unreachable: {ex.Message}");
+                _unreachableProfileIds.Add(profile.Id);
+                return new List<SessionSummary>();
+            }
+        }
+
         try
         {
-            await EnsureConnectedAsync(profile);
-            var client = GetOrCreateClient(profile.Id);
-
             // Best-effort: an older server that doesn't understand "server:info" yet (or any other
             // hiccup) just means this profile's sessions show a generic 💻 glyph and it's left out
             // of the summary chip - shouldn't fail the sessions fetch itself.
@@ -150,45 +190,55 @@ public partial class HomePage : ContentPage
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[HomePage] Failed to list sessions for profile '{profile.Name}': {ex.Message}");
+            _unreachableProfileIds.Add(profile.Id);
             return new List<SessionSummary>();
         }
     }
 
     /// <summary>
-    /// Builds the top summary chip from every successfully-reached server this refresh (one tappable
-    /// "🍎 Mac mini" label per server) - not tied to a single "active" profile, since this screen
-    /// aggregates sessions from every configured server. Tapping a label filters the list down to
-    /// just that server (see <see cref="_filterProfileId"/>); tapping the same one again clears it.
-    /// Hidden entirely if not a single configured server could be reached.
+    /// Builds the top summary chip from every *configured* server (not just the reachable ones) -
+    /// reachable servers get their OS glyph and are tappable to filter the list; servers still being
+    /// connected to (this refresh hasn't reached them yet) show a "⋯ connecting" glyph; servers that
+    /// failed to connect show a grayed-out "⚠️" glyph and aren't tappable. This lets the user see at a
+    /// glance which of their servers is currently unreachable, rather than it just silently vanishing
+    /// from the list. Hidden entirely if there are no configured servers at all.
     /// </summary>
     void RefreshServerInfoSummary(List<ServerProfile> profiles)
     {
         ServerInfoStack.Children.Clear();
-        var reachable = profiles.Where(p => _serverInfoByProfileId.ContainsKey(p.Id)).ToList();
+        var configured = profiles.Where(p => !string.IsNullOrWhiteSpace(p.Url)).ToList();
 
-        if (reachable.Count == 0)
+        if (configured.Count == 0)
         {
             ServerInfoBorder.IsVisible = false;
             return;
         }
 
-        foreach (var profile in reachable)
+        foreach (var profile in configured)
         {
+            var isReachable = _serverInfoByProfileId.ContainsKey(profile.Id);
+            var isUnreachable = _unreachableProfileIds.Contains(profile.Id);
             var isFiltered = _filterProfileId == profile.Id;
+            var glyph = isReachable ? _serverInfoByProfileId[profile.Id].OsGlyph : (isUnreachable ? "⚠️" : "⋯");
             var label = new Label
             {
-                Text = $"{_serverInfoByProfileId[profile.Id].OsGlyph} {profile.Name}",
+                Text = $"{glyph} {profile.Name}",
                 FontSize = 19,
                 FontAttributes = isFiltered ? FontAttributes.Bold : FontAttributes.None,
                 TextDecorations = isFiltered ? TextDecorations.Underline : TextDecorations.None,
-                TextColor = (Color?)Application.Current?.Resources[
-                    Application.Current.RequestedTheme == AppTheme.Dark ? "SecondaryDarkText" : "Tertiary"]
-                    ?? Colors.Black,
-                Opacity = _filterProfileId is null || isFiltered ? 1.0 : 0.5,
+                TextColor = isUnreachable
+                    ? Colors.Gray
+                    : (Color?)Application.Current?.Resources[
+                        Application.Current.RequestedTheme == AppTheme.Dark ? "SecondaryDarkText" : "Tertiary"]
+                        ?? Colors.Black,
+                Opacity = isUnreachable ? 0.4 : (_filterProfileId is null || isFiltered ? 1.0 : 0.5),
             };
-            var tap = new TapGestureRecognizer();
-            tap.Tapped += (_, _) => OnServerChipTapped(profile.Id);
-            label.GestureRecognizers.Add(tap);
+            if (isReachable)
+            {
+                var tap = new TapGestureRecognizer();
+                tap.Tapped += (_, _) => OnServerChipTapped(profile.Id);
+                label.GestureRecognizers.Add(tap);
+            }
             ServerInfoStack.Children.Add(label);
         }
         ServerInfoBorder.IsVisible = true;
