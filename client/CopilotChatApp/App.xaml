@@ -16,6 +16,7 @@
             <converters:BoolToTextColorConverter x:Key="BoolToTextColorConverter" />
             <converters:BoolToAlignConverter x:Key="BoolToAlignConverter" />
             <converters:InvertedBoolConverter x:Key="InvertedBoolConverter" />
+            <converters:StringNotEmptyConverter x:Key="StringNotEmptyConverter" />
             <converters:WidthToBubbleMaxWidthConverter x:Key="WidthToBubbleMaxWidthConverter" />
             <converters:MessageToBubbleBottomPaddingConverter x:Key="MessageToBubbleBottomPaddingConverter" />
             <converters:BoolToSearchHighlightBorderConverter x:Key="BoolToSearchHighlightBorderConverter" />

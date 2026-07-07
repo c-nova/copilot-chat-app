@@ -13,7 +13,11 @@
 
     <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" Padding="16" RowSpacing="12">
 
-        <!-- Server metadata chip: OS/hostname/CLI version/model, fetched best-effort via server:info. -->
+        <!-- Summary chip: one tappable label per successfully-connected server (OS glyph + name),
+             fetched best-effort via server:info for every configured profile in parallel - see
+             HomePage.xaml.cs RefreshServerInfoSummary. Tapping one filters the session list down to
+             just that server; tapping the same one again clears the filter. Built in code-behind
+             (like SettingsPage's profile list) since the number of children changes at runtime. -->
         <Border Grid.Row="0"
                 x:Name="ServerInfoBorder"
                 IsVisible="False"
@@ -21,10 +25,7 @@
                 Stroke="Transparent"
                 Padding="12,8"
                 BackgroundColor="{AppThemeBinding Light={StaticResource Secondary}, Dark={StaticResource Gray900}}">
-            <Label x:Name="ServerInfoLabel"
-                   FontSize="19"
-                   TextColor="{AppThemeBinding Light={StaticResource Tertiary}, Dark={StaticResource SecondaryDarkText}}"
-                   LineBreakMode="TailTruncation" />
+            <HorizontalStackLayout x:Name="ServerInfoStack" Spacing="14" />
         </Border>
 
         <!-- Full-text search across session titles AND actual conversation content (server-side,
@@ -86,7 +87,7 @@
                         <Border.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnSessionTapped" CommandParameter="{Binding .}" />
                         </Border.GestureRecognizers>
-                        <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="*,Auto" RowSpacing="4">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="*,Auto" RowSpacing="4">
                             <HorizontalStackLayout Grid.Row="0" Grid.Column="0" Spacing="6" IsVisible="{Binding Archived}">
                                 <Label Text="📦 Archived" FontSize="17" TextColor="{StaticResource Gray400}" />
                             </HorizontalStackLayout>
@@ -122,7 +123,19 @@
                                    FontSize="17"
                                    TextColor="{StaticResource Gray300}"
                                    LineBreakMode="TailTruncation" />
+                            <!-- Which configured server this session came from, with an OS glyph (see
+                                 SessionSummary.ProfileDisplayLabel / HomePage's aggregated multi-server list) -
+                                 harmless to always show even with a single profile configured, and tells
+                                 sessions from different servers apart once more than one is. -->
                             <Label Grid.Row="3"
+                                   Grid.Column="0"
+                                   Grid.ColumnSpan="2"
+                                   Text="{Binding ProfileDisplayLabel}"
+                                   IsVisible="{Binding ProfileName, Converter={StaticResource StringNotEmptyConverter}}"
+                                   FontSize="17"
+                                   TextColor="{StaticResource Gray300}"
+                                   LineBreakMode="TailTruncation" />
+                            <Label Grid.Row="4"
                                    Grid.Column="0"
                                    Grid.ColumnSpan="2"
                                    Text="{Binding DisplaySubtitle}"

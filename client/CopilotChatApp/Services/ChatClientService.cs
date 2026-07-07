@@ -848,6 +848,21 @@ public class SessionSummary
     [JsonPropertyName("label")] public string? Label { get; set; }
     [JsonPropertyName("archived")] public bool Archived { get; set; }
 
+    /// <summary>Client-only: which configured ServerProfile this session came from (set locally
+    /// after fetching, never sent over the wire) - lets HomePage's aggregated multi-server list tell
+    /// sessions from different servers apart, and lets it route back to the right connection when
+    /// the user taps one. See the "federated" multi-server design in repo memory.</summary>
+    public string ProfileId { get; set; } = string.Empty;
+    public string ProfileName { get; set; } = string.Empty;
+
+    /// <summary>Client-only: the owning server's OS glyph (see ServerInfo.OsGlyph), set locally
+    /// alongside ProfileId/ProfileName so the card badge can show which kind of machine a session
+    /// lives on at a glance.</summary>
+    public string OsGlyph { get; set; } = "💻";
+
+    /// <summary>Combined "🖥 ServerName" badge text for the card (see HomePage.xaml).</summary>
+    public string ProfileDisplayLabel => string.IsNullOrEmpty(ProfileName) ? string.Empty : $"{OsGlyph} {ProfileName}";
+
     /// <summary>The label if set, otherwise the CLI's auto-generated summary - the actual conversation
     /// content is far more useful for telling sessions apart than the folder name, since most sessions
     /// share the same default workspace folder (see <see cref="FolderName"/> for that, shown as a

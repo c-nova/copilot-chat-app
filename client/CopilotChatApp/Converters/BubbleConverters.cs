@@ -42,6 +42,16 @@ public class InvertedBoolConverter : IValueConverter
         => !(value is true);
 }
 
+/// <summary>True when the bound string is non-empty - used to hide a badge Label entirely rather than showing it with empty text (e.g. HomePage's per-server-profile badge).</summary>
+public class StringNotEmptyConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => !string.IsNullOrWhiteSpace(value as string);
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
 /// <summary>
 /// Converts the message list's own width into a generous max-width for chat bubbles (90%, min 480) so
 /// wide content like Markdown tables gets real room on desktop instead of always wrapping at a fixed 480px.

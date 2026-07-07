@@ -91,13 +91,19 @@ public partial class SettingsPage : ContentPage
         }
     }
 
+    /// <summary>Tapping a row in the profile list both loads it into the edit form below AND
+    /// immediately switches the active profile (rather than waiting for Save) - the ✓/highlight in
+    /// the list is tied to ActiveProfileId, so without this, tapping a different row visually did
+    /// nothing until Save was pressed, which read as "selection isn't working".</summary>
     async Task SelectProfileForEditingAsync(ServerProfile profile)
     {
         _editingProfile = profile;
+        SettingsService.ActiveProfileId = profile.Id;
         EditingProfileLabel.Text = $"編集中: {(string.IsNullOrWhiteSpace(profile.Name) ? "(no name)" : profile.Name)}";
         ProfileNameEntry.Text = profile.Name;
         ServerUrlEntry.Text = profile.Url;
         AuthTokenEntry.Text = await SettingsService.GetProfileAuthTokenAsync(profile.Id);
+        LoadProfilesList();
     }
 
     void StartAddingNewProfile()
