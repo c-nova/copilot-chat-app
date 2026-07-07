@@ -23,9 +23,8 @@
 
     <ContentPage.ToolbarItems>
         <ToolbarItem Text="🔍" Order="Primary" Priority="0" Clicked="OnToggleSearchClicked" />
-        <ToolbarItem Text="☰" Order="Primary" Priority="1" Clicked="OnSessionsClicked" />
-        <ToolbarItem Text="New chat" Order="Primary" Priority="2" Clicked="OnNewChatClicked" />
-        <ToolbarItem Text="Settings" Order="Primary" Priority="3" Clicked="OnSettingsClicked" />
+        <ToolbarItem Text="New chat" Order="Primary" Priority="1" Clicked="OnNewChatClicked" />
+        <ToolbarItem Text="Settings" Order="Primary" Priority="2" Clicked="OnSettingsClicked" />
     </ContentPage.ToolbarItems>
 
     <Grid>

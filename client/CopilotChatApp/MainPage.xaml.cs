@@ -227,11 +227,6 @@ public partial class MainPage : ContentPage
         await _viewModel.StartNewChatAsync();
     }
 
-    async void OnSessionsClicked(object? sender, EventArgs e)
-    {
-        await Navigation.PushAsync(new SessionsPage(_viewModel.ChatClient, _viewModel.ApplyResumedSession, () => _ = _viewModel.StartNewChatAsync()));
-    }
-
     // --- In-chat "find" bar (search within the currently open conversation) ---
     // Pure client-side substring match over the already-loaded Messages list - unlike HomePage's
     // cross-session search, there's no server round-trip to make here, the whole conversation is

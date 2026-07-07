@@ -7,9 +7,8 @@ namespace CopilotChatApp.Views;
 /// <summary>
 /// The app's launch screen (Shell's root page, see AppShell.xaml): lists past Copilot CLI sessions
 /// and lets the user resume one or start a new chat. Each choice pushes a fresh <see cref="MainPage"/>
-/// onto the navigation stack - this is different from the in-chat "☰ Sessions" flow
-/// (<see cref="SessionsPage"/>), which mutates the *already open* MainPage's ChatViewModel in place
-/// instead of navigating. That existing flow is left untouched; this page is purely a new entry point.
+/// onto the navigation stack. (This used to duplicate an in-chat "☰ Sessions" flow on a separate
+/// SessionsPage - that page was removed once this screen covered everything it did.)
 ///
 /// Owns its own ChatClientService/connection, separate from any MainPage's. By the time the user
 /// taps a session or "New chat" here, iOS's local-network-access permission prompt (if any) has
@@ -74,8 +73,8 @@ public partial class HomePage : ContentPage
             LoadingIndicator.IsVisible = false;
             LoadingIndicator.IsRunning = false;
             LoadingLabel.IsVisible = false;
-            // Same rationale as SessionsPage: this can legitimately fail while iOS's local-network
-            // permission prompt is still up, so offer Retry rather than a dead-end error.
+            // This can legitimately fail while iOS's local-network permission prompt is still up,
+            // so offer Retry rather than a dead-end error.
             var retry = await DisplayAlert("Couldn't load sessions", ex.Message, "Retry", "Cancel");
             if (retry)
             {

@@ -25,11 +25,11 @@ public class ChatViewModel : INotifyPropertyChanged, IAsyncDisposable
     string? _pendingCwd;
 
     /// <summary>
-    /// Exposes the already-connected client so other pages (e.g. SessionsPage) can reuse this single
-    /// connection instead of opening a second WebSocket. Besides being wasteful, a second connection
-    /// re-triggers iOS's local-network-access permission flow, and if the user hasn't answered that
-    /// system prompt yet, the second connection attempt fails immediately and surfaces as a confusing
-    /// in-app error dialog on top of (or racing) the system one.
+    /// Exposes the already-connected client so other pages can reuse this single connection instead
+    /// of opening a second WebSocket. Besides being wasteful, a second connection re-triggers iOS's
+    /// local-network-access permission flow, and if the user hasn't answered that system prompt yet,
+    /// the second connection attempt fails immediately and surfaces as a confusing in-app error
+    /// dialog on top of (or racing) the system one.
     /// </summary>
     public ChatClientService ChatClient => _chatClient;
 
