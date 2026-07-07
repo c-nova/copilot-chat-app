@@ -22,7 +22,7 @@
                 Padding="12,8"
                 BackgroundColor="{AppThemeBinding Light={StaticResource Secondary}, Dark={StaticResource Gray900}}">
             <Label x:Name="ServerInfoLabel"
-                   FontSize="12"
+                   FontSize="15"
                    TextColor="{AppThemeBinding Light={StaticResource Tertiary}, Dark={StaticResource SecondaryDarkText}}"
                    LineBreakMode="TailTruncation" />
         </Border>
@@ -31,6 +31,7 @@
                Grid.Row="1"
                Text="サーバーが未設定です。右上の Settings からサーバーURLとトークンを入力してください。"
                IsVisible="False"
+               FontSize="16"
                TextColor="Gray"
                Margin="0,20,0,0" />
 
@@ -40,7 +41,7 @@
                    Text="Connecting to server… this can take up to 30s while waiting for network permission"
                    IsVisible="False"
                    VerticalOptions="Center"
-                   FontSize="13"
+                   FontSize="16"
                    TextColor="Gray" />
         </HorizontalStackLayout>
 
@@ -49,7 +50,7 @@
                         ItemsSource="{Binding Sessions}"
                         SelectionMode="None">
             <CollectionView.EmptyView>
-                <Label Text="過去のセッションはまだありません。「New chat」で始めましょう。" TextColor="Gray" Margin="0,20,0,0" />
+                <Label Text="過去のセッションはまだありません。「New chat」で始めましょう。" FontSize="16" TextColor="Gray" Margin="0,20,0,0" />
             </CollectionView.EmptyView>
             <CollectionView.ItemsLayout>
                 <GridItemsLayout Orientation="Vertical" Span="2" VerticalItemSpacing="12" HorizontalItemSpacing="12" />
@@ -69,19 +70,19 @@
                         </Border.GestureRecognizers>
                         <VerticalStackLayout Spacing="4">
                             <HorizontalStackLayout Spacing="6" IsVisible="{Binding Archived}">
-                                <Label Text="📦 Archived" FontSize="10" TextColor="{StaticResource Gray400}" />
+                                <Label Text="📦 Archived" FontSize="13" TextColor="{StaticResource Gray400}" />
                             </HorizontalStackLayout>
                             <Label Text="{Binding DisplayTitle}"
                                    FontAttributes="Bold"
-                                   FontSize="15"
+                                   FontSize="18"
                                    LineBreakMode="TailTruncation"
                                    MaxLines="2" />
                             <Label Text="{Binding FolderName, StringFormat='📁 {0}'}"
-                                   FontSize="10"
+                                   FontSize="13"
                                    TextColor="{StaticResource Gray300}"
                                    LineBreakMode="TailTruncation" />
                             <Label Text="{Binding DisplaySubtitle}"
-                                   FontSize="11"
+                                   FontSize="14"
                                    TextColor="{StaticResource Gray400}" />
                         </VerticalStackLayout>
                     </Border>
