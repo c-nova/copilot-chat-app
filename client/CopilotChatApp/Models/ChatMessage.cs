@@ -25,8 +25,19 @@ public class ChatMessage : INotifyPropertyChanged
             if (_text == value) return;
             _text = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(NeedsBottomBuffer));
         }
     }
+
+    /// <summary>
+    /// True when this is a non-user message spanning more than one line. MarkdownView's custom-drawn
+    /// height calculation lands about one line short specifically on multi-line/complex assistant
+    /// content (tables, lists, wrapped paragraphs). User messages are excluded even when they happen to
+    /// span multiple lines (e.g. a sentence plus a pasted URL on its own line) - they're plain typed
+    /// text with none of MarkdownView's complex layout, so they never trip the bug, and the buffer would
+    /// just read as a stray blank line underneath.
+    /// </summary>
+    public bool NeedsBottomBuffer => Role != ChatRole.User && _text.Contains('\n');
 
     public bool IsUser => Role == ChatRole.User;
     public bool IsAssistant => Role == ChatRole.Assistant;

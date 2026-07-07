@@ -8,6 +8,7 @@ namespace CopilotChatApp;
 public partial class MainPage : ContentPage
 {
     readonly ChatViewModel _viewModel = new();
+    double _lastLaidOutFontSize = SettingsService.ChatFontSize;
 
     public MainPage()
     {
@@ -162,6 +163,24 @@ public partial class MainPage : ContentPage
     {
         base.OnAppearing();
         await _viewModel.InitializeAsync();
+
+        // Changing the chat font size in Settings updates {DynamicResource ChatFontSize} live, but
+        // CollectionView's self-sizing cells on iOS/Mac Catalyst don't retroactively re-measure
+        // *already-rendered* cells just because a descendant's FontSize changed via a resource -
+        // the cell keeps whatever height was cached before the change. Coming back from Settings
+        // with a different font size than we last laid out with, force every visible cell to be
+        // torn down and rebuilt from scratch by rebinding ItemsSource (this is the same clipping
+        // symptom as the streaming/last-line bug, just triggered by a font size change instead of
+        // stale streaming layout).
+        var currentFontSize = SettingsService.ChatFontSize;
+        if (currentFontSize != _lastLaidOutFontSize)
+        {
+            _lastLaidOutFontSize = currentFontSize;
+            var messages = _viewModel.Messages;
+            MessagesView.ItemsSource = null;
+            MessagesView.ItemsSource = messages;
+            ScrollToLatest();
+        }
     }
 
     async void OnToolTapped(object? sender, TappedEventArgs e)

@@ -58,3 +58,26 @@ public class WidthToBubbleMaxWidthConverter : IValueConverter
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();
 }
+
+/// <summary>
+/// Supplies the height of each chat bubble's bottom spacer (see MainPage.xaml / PBI history on the
+/// message-clipping bug). MarkdownView's height calculation only lands short on multi-line/complex
+/// content (tables, lists, wrapped paragraphs) - a short single-line message (bound via
+/// ChatMessage.NeedsBottomBuffer) never needs the full font-proportional buffer, and giving it one
+/// just reads as a stray blank line underneath.
+/// </summary>
+public class NeedsBottomBufferToHeightConverter : IValueConverter
+{
+    const double MinimalBottomPadding = 4d;
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is not true) return MinimalBottomPadding;
+        return Application.Current?.Resources[CopilotChatApp.Services.SettingsService.ChatBubbleBottomPaddingResourceKey] is double d
+            ? d
+            : 36d;
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}

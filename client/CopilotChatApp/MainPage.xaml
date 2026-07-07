@@ -39,7 +39,7 @@
                 <CollectionView.ItemTemplate>
                     <DataTemplate x:DataType="models:ChatMessage">
                         <Grid Padding="4" RowDefinitions="Auto,Auto">
-                            <Frame Padding="10,8,10,36"
+                            <Frame Padding="10,8"
                                    Grid.Row="0"
                                    CornerRadius="12"
                                    HasShadow="False"
@@ -89,6 +89,16 @@
                                            FontSize="11"
                                            TextColor="Gray"
                                            IsVisible="{Binding IsCopied}" />
+                                    <!-- Extra bottom buffer scaled to the current chat font size (see
+                                         SettingsService.ChatBubbleBottomPaddingResourceKey) - MarkdownView's
+                                         custom-drawn height calculation lands about one line short
+                                         regardless of font size, so a flat pixel buffer alone stops being
+                                         enough once the user picks a larger font. A Label (not BoxView) is
+                                         used here deliberately - BoxView.Color defaults to opaque black and
+                                         rendered as a visible black bar instead of Transparent on Mac
+                                         Catalyst; Label has no separate fill color to fight with.
+                                    -->
+                                    <Label Text="" HeightRequest="{Binding NeedsBottomBuffer, Converter={StaticResource NeedsBottomBufferToHeightConverter}}" InputTransparent="True" />
                                 </VerticalStackLayout>
                             </Frame>
                             <Label Grid.Row="1"
@@ -129,14 +139,16 @@
                 </CollectionView.ItemTemplate>
             </CollectionView>
 
-            <!-- Sending status indicator: shown from the moment Send is tapped until the first
-                 response content arrives, so the user isn't left staring at a blank screen
-                 wondering whether the app is hung (see PBI-015). -->
+            <!-- Sending status indicator: shown from the moment Send is tapped until the turn is fully
+                 finalized (IsSending covers tool calls too, unlike IsWaitingForResponse which turns off
+                 the instant *anything* visible happens - including a tool call starting - so relying on
+                 that alone left the user unable to tell whether a multi-tool-call turn had actually
+                 finished or was still working. See PBI-015). -->
             <HorizontalStackLayout Grid.Row="1"
-                                   IsVisible="{Binding IsWaitingForResponse}"
+                                   IsVisible="{Binding IsSending}"
                                    Spacing="6"
                                    Margin="12,0,12,4">
-                <ActivityIndicator IsRunning="{Binding IsWaitingForResponse}"
+                <ActivityIndicator IsRunning="{Binding IsSending}"
                                    Color="Gray"
                                    WidthRequest="14"
                                    HeightRequest="14"
