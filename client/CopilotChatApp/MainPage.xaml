@@ -34,14 +34,16 @@
                             Grid.Row="0"
                             Margin="8"
                             ItemsUpdatingScrollMode="KeepLastItemInView"
+                            ItemSizingStrategy="MeasureAllItems"
                             ItemsSource="{Binding Messages}">
                 <CollectionView.ItemTemplate>
                     <DataTemplate x:DataType="models:ChatMessage">
                         <Grid Padding="4" RowDefinitions="Auto,Auto">
-                            <Frame Padding="10,8"
+                            <Frame Padding="10,8,10,36"
                                    Grid.Row="0"
                                    CornerRadius="12"
                                    HasShadow="False"
+                                   IsClippedToBounds="False"
                                    IsVisible="{Binding IsTool, Converter={StaticResource InvertedBoolConverter}}"
                                    BackgroundColor="{Binding IsUser, Converter={StaticResource BoolToBubbleColorConverter}}"
                                    HorizontalOptions="{Binding IsUser, Converter={StaticResource BoolToAlignConverter}}"
@@ -90,7 +92,7 @@
                                 </VerticalStackLayout>
                             </Frame>
                             <Label Grid.Row="1"
-                                   Text="� テキスト選択"
+                                   Text="🔎 テキスト選択"
                                    FontSize="14"
                                    Opacity="0.55"
                                    Margin="6,1,6,0"

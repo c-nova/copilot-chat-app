@@ -33,6 +33,19 @@ public partial class MainPage : ContentPage
             }
         };
 
+        // IsWaitingForResponse flips false exactly once, the instant a turn is fully finalized
+        // (see ChatViewModel.FinalizeAssistantMessage) - a more reliable "the content is done
+        // growing" signal than reacting to individual PropertyChanged deltas, which can't tell
+        // "another delta is coming" from "this was the last one". Do one more settle-scroll here
+        // once the finalized text has had a chance to actually lay out.
+        _viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ChatViewModel.IsWaitingForResponse) && !_viewModel.IsWaitingForResponse)
+            {
+                ScrollToLatest();
+            }
+        };
+
 #if WINDOWS
         SetUpSubmitShortcut();
 #elif MACCATALYST
@@ -71,21 +84,34 @@ public partial class MainPage : ContentPage
     /// Scrolls the message list so the newest message is visible. Explicit ScrollTo is used in addition to
     /// ItemsUpdatingScrollMode="KeepLastItemInView" because that property alone isn't always reliable when
     /// items are removed and re-added quickly (e.g. sealing a pending assistant bubble on tool start).
+    ///
+    /// ScrollTo computes its target offset from the item's *current* measured height. During streaming,
+    /// PropertyChanged fires the instant a text delta is appended, but the native layout pass that grows
+    /// the cell to fit the new text happens slightly later - so the immediate ScrollTo can land a few
+    /// points short of the true bottom. Because there's a PropertyChanged event for every subsequent
+    /// delta, this self-corrects for all but the *last* chunk of a response, whose trailing sliver then
+    /// has no follow-up scroll to fix it and appears clipped by the viewport. A short follow-up ScrollTo
+    /// after the layout pass has had a chance to settle closes that gap.
     /// </summary>
     void ScrollToLatest()
     {
         if (_viewModel.Messages.Count == 0) return;
-        MainThread.BeginInvokeOnMainThread(() =>
+        MainThread.BeginInvokeOnMainThread(() => ScrollToEnd());
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(150), () => ScrollToEnd());
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(400), () => ScrollToEnd());
+    }
+
+    void ScrollToEnd()
+    {
+        if (_viewModel.Messages.Count == 0) return;
+        try
         {
-            try
-            {
-                MessagesView.ScrollTo(_viewModel.Messages.Count - 1, position: ScrollToPosition.End, animate: false);
-            }
-            catch
-            {
-                // ignore - can throw if the view isn't laid out yet
-            }
-        });
+            MessagesView.ScrollTo(_viewModel.Messages.Count - 1, position: ScrollToPosition.End, animate: false);
+        }
+        catch
+        {
+            // ignore - can throw if the view isn't laid out yet
+        }
     }
 
     void SetUpSubmitShortcut()
