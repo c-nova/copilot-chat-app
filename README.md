@@ -51,6 +51,11 @@ Make sure this port is reachable from your other devices (open the firewall / ro
 
 Client apps must send `Authorization: Bearer <AUTH_TOKEN>` on connect — configure the same token in the app's Settings page.
 
+To have the server start automatically at login and restart itself if it crashes (rather than only
+running in a terminal you keep open), see [USAGE.md's "Running the server persistently"
+section](USAGE.md#running-the-server-persistently-start-at-login-auto-restart) — `scripts/install-server-startup-windows.ps1`
+(Scheduled Task) and `scripts/install-server-startup-mac.sh` (LaunchAgent), no admin rights needed.
+
 ## 2. Run/build the client
 
 ```powershell
@@ -212,6 +217,11 @@ npm start
 
 クライアントは接続時に `Authorization: Bearer <AUTH_TOKEN>` を送る必要があります — アプリのSettings画面で
 同じトークンを設定してください。
+
+サーバーをログイン時に自動起動させ、クラッシュしても自動再起動させたい場合(ターミナルを開きっぱなしに
+する必要をなくしたい場合)は、[USAGE.mdの「サーバーを常時起動しておく」セクション](USAGE.md#サーバーを常時起動しておくログイン時に自動起動自動再起動)
+を参照してください — `scripts/install-server-startup-windows.ps1`(Scheduled Task)と
+`scripts/install-server-startup-mac.sh`(LaunchAgent)、どちらも管理者権限は不要です。
 
 ## 2. クライアントを実行/ビルドする
 

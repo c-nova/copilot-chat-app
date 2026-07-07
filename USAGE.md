@@ -43,6 +43,29 @@ If you also want to use this from an iPhone outside your home/office LAN, set up
 forwarding, a VPN, or a TLS-terminating reverse proxy (`wss://`) separately.
 (Exposing plain `ws://` directly to the internet is not recommended.)
 
+### Running the server persistently (start at login, auto-restart)
+
+`npm start` only runs the server in your current terminal session - close the terminal (or log out)
+and it stops. To make it start automatically and keep itself running like a real service:
+
+```powershell
+# Windows: registers a Scheduled Task (runs at logon for the current user, restarts on crash)
+./scripts/install-server-startup-windows.ps1
+./scripts/install-server-startup-windows.ps1 -Uninstall   # stop + remove
+```
+
+```bash
+# macOS: registers a per-user LaunchAgent (same idea, via launchd)
+./scripts/install-server-startup-mac.sh
+./scripts/install-server-startup-mac.sh --uninstall   # stop + remove
+```
+
+Both need the server already built and configured first (`./scripts/build-windows.ps1` /
+`./scripts/build-mac.sh` at least once). Neither needs admin/root - they're scoped to your own login
+session, not a system-wide daemon, so the server starts when you log in and gets restarted
+automatically if it ever crashes. Logs go to `%LOCALAPPDATA%\CopilotChatServer\server.log` (Windows)
+or `~/Library/Logs/CopilotChatServer.log` (macOS).
+
 ---
 
 ## 2. Use the client app
@@ -367,6 +390,31 @@ npm start
 社内LAN/自宅LANの外からiPhoneでも使いたい場合は、ルーターのポート開放やVPN、
 またはTLS終端(`wss://`)できるリバースプロキシなどを別途用意してください
 (素の `ws://` をインターネットに直接晒すのは非推奨です)。
+
+### サーバーを常時起動しておく(ログイン時に自動起動+自動再起動)
+
+`npm start` は今のターミナルセッションで動くだけなので、ターミナルを閉じたり
+ログアウトしたりすると止まってしまいます。本物のサービスっぽく、自動起動+
+自動再起動させたい場合:
+
+```powershell
+# Windows: Scheduled Taskとして登録(現在のユーザーのログオン時に起動、クラッシュ時は自動再起動)
+./scripts/install-server-startup-windows.ps1
+./scripts/install-server-startup-windows.ps1 -Uninstall   # 停止+削除
+```
+
+```bash
+# macOS: ユーザーごとのLaunchAgentとして登録(launchd経由で同様の仕組み)
+./scripts/install-server-startup-mac.sh
+./scripts/install-server-startup-mac.sh --uninstall   # 停止+削除
+```
+
+どちらも事前にサーバーのビルド・設定が済んでいる必要があります(最低1回は
+`./scripts/build-windows.ps1` / `./scripts/build-mac.sh` を実行しておいてください)。
+管理者権限は不要です — システム全体のデーモンではなく、自分のログインセッションに
+紐づく仕組みなので、ログインすると起動し、クラッシュしても自動的に再起動されます。
+ログは `%LOCALAPPDATA%\CopilotChatServer\server.log`(Windows)または
+`~/Library/Logs/CopilotChatServer.log`(macOS)に出力されます。
 
 ---
 
