@@ -68,12 +68,21 @@
                                     </CollectionView>
                                     <idk:MarkdownView MarkdownText="{Binding Text}"
                                                        TextFontSize="{DynamicResource ChatFontSize}"
+                                                       CodeBlockFontSize="{DynamicResource ChatFontSize}"
                                                        H1Color="#1A1A1A"
                                                        H2Color="#1A1A1A"
                                                        H3Color="#1A1A1A"
                                                        H4Color="#1A1A1A"
                                                        H5Color="#1A1A1A"
-                                                       H6Color="#1A1A1A" />
+                                                       H6Color="#1A1A1A">
+                                        <idk:MarkdownView.CodeBlockFontFace>
+                                            <OnPlatform x:TypeArguments="x:String">
+                                                <On Platform="iOS, MacCatalyst" Value="Courier" />
+                                                <On Platform="WinUI" Value="Consolas" />
+                                                <On Platform="Android" Value="monospace" />
+                                            </OnPlatform>
+                                        </idk:MarkdownView.CodeBlockFontFace>
+                                    </idk:MarkdownView>
                                     <Label Text="✓ コピーしました"
                                            FontSize="11"
                                            TextColor="Gray"
@@ -81,8 +90,8 @@
                                 </VerticalStackLayout>
                             </Frame>
                             <Label Grid.Row="1"
-                                   Text="🔎 全文選択"
-                                   FontSize="11"
+                                   Text="� テキスト選択"
+                                   FontSize="14"
                                    Opacity="0.55"
                                    Margin="6,1,6,0"
                                    IsVisible="{Binding IsTool, Converter={StaticResource InvertedBoolConverter}}"
@@ -131,7 +140,7 @@
                                    HeightRequest="14"
                                    VerticalOptions="Center" />
                 <Label Text="Copilot is working…"
-                       FontSize="12"
+                       FontSize="16"
                        FontAttributes="Italic"
                        TextColor="Gray"
                        VerticalOptions="Center" />
@@ -169,24 +178,38 @@
                 </CollectionView.ItemTemplate>
             </CollectionView>
 
-            <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" Padding="8" ColumnSpacing="8">
-                <Button Grid.Column="0"
-                        Text="📎"
-                        Clicked="OnPasteImageClicked"
-                        VerticalOptions="End" />
-                <Editor x:Name="InputEditor"
-                        Grid.Column="1"
-                        Text="{Binding InputText}"
-                        FontSize="{DynamicResource ChatFontSize}"
-                        Placeholder="Message Copilot..."
-                        AutoSize="TextChanges"
-                        MaxLength="8000" />
-                <Button x:Name="SendButton"
-                        Grid.Column="2"
-                        Text="Send"
-                        Command="{Binding SendCommand}"
-                        VerticalOptions="End" />
-            </Grid>
+            <Border Grid.Row="3"
+                    Margin="8"
+                    Padding="10,8"
+                    StrokeShape="RoundRectangle 20"
+                    Stroke="{AppThemeBinding Light={StaticResource Gray100}, Dark={StaticResource Gray600}}"
+                    StrokeThickness="1"
+                    BackgroundColor="{AppThemeBinding Light=#F2F2F7, Dark={StaticResource Gray900}}">
+                <Border.Shadow>
+                    <Shadow Brush="Black" Opacity="0.10" Radius="10" Offset="0,2" />
+                </Border.Shadow>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                    <Button Grid.Column="0"
+                            Text="📎"
+                            Clicked="OnPasteImageClicked"
+                            BackgroundColor="Transparent"
+                            VerticalOptions="Center" />
+                    <Editor x:Name="InputEditor"
+                            Grid.Column="1"
+                            Text="{Binding InputText}"
+                            FontSize="{DynamicResource ChatFontSize}"
+                            Placeholder="Message Copilot..."
+                            BackgroundColor="Transparent"
+                            AutoSize="TextChanges"
+                            MinimumHeightRequest="96"
+                            MaxLength="8000" />
+                    <Button x:Name="SendButton"
+                            Grid.Column="2"
+                            Text="Send"
+                            Command="{Binding SendCommand}"
+                            VerticalOptions="Center" />
+                </Grid>
+            </Border>
         </Grid>
 
         <!-- Biometric lock overlay (PBI-009): shown while the SecureStorage-held auth token is gated
