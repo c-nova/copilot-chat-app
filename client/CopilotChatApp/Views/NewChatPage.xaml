@@ -12,11 +12,17 @@
 
     <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="16" RowSpacing="10">
 
-        <Label x:Name="PathLabel"
-               Grid.Row="0"
-               FontSize="13"
-               TextColor="Gray"
-               LineBreakMode="TailTruncation" />
+        <VerticalStackLayout Grid.Row="0" Spacing="4">
+            <Label x:Name="PathLabel"
+                   FontSize="13"
+                   TextColor="Gray"
+                   LineBreakMode="TailTruncation" />
+            <Label x:Name="BrowseRootsHintLabel"
+                   Text="※ 現在はデフォルトのワークスペースのみ選択可能です。他のフォルダも選べるようにするには、server/.env で BROWSE_ROOTS を設定してサーバーを再起動してください。"
+                   FontSize="12"
+                   TextColor="{StaticResource Gray400}"
+                   IsVisible="False" />
+        </VerticalStackLayout>
 
         <HorizontalStackLayout Grid.Row="1" Spacing="8">
             <Button x:Name="UpButton" Text="⬆ 上へ" Clicked="OnUpClicked" IsVisible="False" FontSize="13" Padding="12,6" />
@@ -28,7 +34,12 @@
                         ItemsSource="{Binding Entries}"
                         SelectionMode="None">
             <CollectionView.EmptyView>
-                <Label Text="サブフォルダはありません。" TextColor="Gray" Margin="0,20,0,0" />
+                <VerticalStackLayout Spacing="6" Margin="0,20,0,0">
+                    <Label Text="サブフォルダはありません。" TextColor="Gray" />
+                    <Label Text="※ BROWSE_ROOTS 未設定の場合、デフォルトworkspace以外のフォルダは選べません。下の「デフォルトworkspaceを使う」で始めるか、server/.env で BROWSE_ROOTS を設定してください。"
+                           FontSize="12"
+                           TextColor="{StaticResource Gray400}" />
+                </VerticalStackLayout>
             </CollectionView.EmptyView>
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="services:FsEntry">

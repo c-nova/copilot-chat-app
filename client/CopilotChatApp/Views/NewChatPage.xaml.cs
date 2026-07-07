@@ -51,6 +51,10 @@ public partial class NewChatPage : ContentPage
             UpButton.IsVisible = _currentPath is not null && _parentPath is not null;
             RootsButton.IsVisible = _currentPath is not null && _parentPath is null && _roots.Count > 1;
             UseCurrentFolderButton.IsVisible = _currentPath is not null;
+            // Only one configured root strongly suggests BROWSE_ROOTS was never set (falls back to
+            // just the default workspace - see server/src/config.ts) - nudge towards configuring it
+            // rather than leaving the user wondering why there's nothing else to pick.
+            BrowseRootsHintLabel.IsVisible = _roots.Count <= 1;
         }
         catch (Exception ex)
         {
