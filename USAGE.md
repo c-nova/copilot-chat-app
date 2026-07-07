@@ -112,6 +112,14 @@ handles signing/UDID selection for you.
 > If you edit code, rebuild, and the app's behavior doesn't change, delete `bin/Debug/net10.0-ios` and
 > `obj/Debug/net10.0-ios` first — MSBuild's incremental build can silently skip recompiling and just
 > reinstall the same stale binary.
+>
+> If a provisioning profile already exists for this exact device + bundle id (check
+> `~/Library/MobileDevice/Provisioning Profiles/`, e.g. with the device-listing command in step 3 above), you
+> can skip straight to step 4 — step 1 is only needed the first time or after the profile expires.
+>
+> `dotnet build -t:Run` stays attached and streams the device's console log until the app is closed — this is
+> normal, it's not hanging. Press Ctrl+C to detach; MSBuild will then report the launch as "failed" with an
+> MSB3073 error because `mlaunch` got killed rather than exiting cleanly, which is expected and can be ignored.
 
 ### Quick build scripts
 
@@ -367,6 +375,15 @@ VS側がやってくれます。
 > コードを直してリビルドしても挙動が変わらない場合は、先に `bin/Debug/net10.0-ios` と
 > `obj/Debug/net10.0-ios` を削除してください。MSBuildの増分ビルドが再コンパイルを黙ってスキップし、
 > 古いバイナリを再インストールしているだけのことがあります。
+
+> このデバイス+Bundle ID向けのプロビジョニングプロファイルがすでにあれば(`~/Library/MobileDevice/Provisioning Profiles/`
+> を確認、上の手順3のデバイス一覧コマンドで確認できます)、手順を4に直接進んでOKです — 手項1は初回や
+> プロファイル失効後のみ必要です。
+>
+> `dotnet build -t:Run` はアプリが閉じられるまでデバイスのコンソールログを表示し続けます(フォアグラウンドで待機し
+> 続けるのが仕様で、ハングしているわけではありません)。Ctrl+Cで切断できますが、`mlaunch`が正常終了ではなく
+> 強制終了される形になるため、MSBuildはMSB3073エラーで「起動失敗」と表示します — これは想定通りの動作で
+> 気にしなくて大丈夫です。
 
 ### 簡単ビルドスクリプト
 
