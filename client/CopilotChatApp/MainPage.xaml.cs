@@ -24,11 +24,21 @@ public partial class MainPage : ContentPage
                 // appended to Text, or IsRunning flipping when a tool call completes) - otherwise the
                 // view only auto-scrolls once per new bubble and falls behind while a long streamed
                 // response or tool call is still growing.
+                //
+                // IsSearchHighlighted/IsCopied are excluded: those are UI-only flags toggled well
+                // after the message is finalized (search jumping to a match, or a "Copied" flash), and
+                // treating them the same as "new content just streamed in" fought the in-chat search
+                // bar - jumping to a match (setting IsSearchHighlighted) immediately re-scrolled all
+                // the way back to the bottom instead of staying at the match.
                 if (e.NewItems is not null)
                 {
                     foreach (ChatMessage msg in e.NewItems)
                     {
-                        msg.PropertyChanged += (_, __) => ScrollToLatest();
+                        msg.PropertyChanged += (_, propArgs) =>
+                        {
+                            if (propArgs.PropertyName is nameof(ChatMessage.IsSearchHighlighted) or nameof(ChatMessage.IsCopied)) return;
+                            ScrollToLatest();
+                        };
                     }
                 }
             }
@@ -220,6 +230,103 @@ public partial class MainPage : ContentPage
     async void OnSessionsClicked(object? sender, EventArgs e)
     {
         await Navigation.PushAsync(new SessionsPage(_viewModel.ChatClient, _viewModel.ApplyResumedSession, () => _ = _viewModel.StartNewChatAsync()));
+    }
+
+    // --- In-chat "find" bar (search within the currently open conversation) ---
+    // Pure client-side substring match over the already-loaded Messages list - unlike HomePage's
+    // cross-session search, there's no server round-trip to make here, the whole conversation is
+    // already in memory.
+    readonly List<int> _searchMatchIndices = new();
+    int _searchMatchPos = -1;
+    ChatMessage? _searchHighlightedMessage;
+
+    void OnToggleSearchClicked(object? sender, EventArgs e)
+    {
+        var showing = !SearchBarRow.IsVisible;
+        SearchBarRow.IsVisible = showing;
+        if (showing)
+        {
+            ChatSearchBar.Focus();
+        }
+        else
+        {
+            ChatSearchBar.Text = string.Empty; // triggers OnChatSearchTextChanged, which clears the highlight/matches
+        }
+    }
+
+    void OnChatSearchTextChanged(object? sender, TextChangedEventArgs e)
+    {
+        ClearSearchHighlight();
+        _searchMatchIndices.Clear();
+        _searchMatchPos = -1;
+
+        var query = e.NewTextValue?.Trim() ?? string.Empty;
+        if (!string.IsNullOrEmpty(query))
+        {
+            for (var i = 0; i < _viewModel.Messages.Count; i++)
+            {
+                if (_viewModel.Messages[i].Text.Contains(query, StringComparison.OrdinalIgnoreCase))
+                {
+                    _searchMatchIndices.Add(i);
+                }
+            }
+            if (_searchMatchIndices.Count > 0)
+            {
+                // Start from the most recent match - in a long conversation, the newest occurrence of
+                // a search term is usually the one the user actually wants (they just said it, or the
+                // assistant just referenced it), and Prev/Next can step backward from there.
+                _searchMatchPos = _searchMatchIndices.Count - 1;
+                JumpToCurrentSearchMatch();
+            }
+        }
+        UpdateSearchCounterLabel();
+    }
+
+    void OnSearchPrevClicked(object? sender, EventArgs e) => StepSearchMatch(-1);
+
+    void OnSearchNextClicked(object? sender, EventArgs e) => StepSearchMatch(1);
+
+    void StepSearchMatch(int direction)
+    {
+        if (_searchMatchIndices.Count == 0) return;
+        _searchMatchPos = ((_searchMatchPos + direction) % _searchMatchIndices.Count + _searchMatchIndices.Count) % _searchMatchIndices.Count;
+        JumpToCurrentSearchMatch();
+        UpdateSearchCounterLabel();
+    }
+
+    void JumpToCurrentSearchMatch()
+    {
+        ClearSearchHighlight();
+        if (_searchMatchPos < 0 || _searchMatchPos >= _searchMatchIndices.Count) return;
+
+        var index = _searchMatchIndices[_searchMatchPos];
+        var message = _viewModel.Messages[index];
+        message.IsSearchHighlighted = true;
+        _searchHighlightedMessage = message;
+        try
+        {
+            MessagesView.ScrollTo(index, position: ScrollToPosition.Center, animate: true);
+        }
+        catch
+        {
+            // ignore - can throw if the view isn't laid out yet
+        }
+    }
+
+    void ClearSearchHighlight()
+    {
+        if (_searchHighlightedMessage is not null)
+        {
+            _searchHighlightedMessage.IsSearchHighlighted = false;
+            _searchHighlightedMessage = null;
+        }
+    }
+
+    void UpdateSearchCounterLabel()
+    {
+        SearchCounterLabel.Text = _searchMatchIndices.Count == 0
+            ? "0/0"
+            : $"{_searchMatchPos + 1}/{_searchMatchIndices.Count}";
     }
 
     async void OnSettingsClicked(object? sender, EventArgs e)

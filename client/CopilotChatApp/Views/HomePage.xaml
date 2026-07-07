@@ -11,7 +11,7 @@
         <ToolbarItem Text="Settings" Order="Primary" Priority="1" Clicked="OnSettingsClicked" />
     </ContentPage.ToolbarItems>
 
-    <Grid RowDefinitions="Auto,Auto,Auto,*" Padding="16" RowSpacing="12">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" Padding="16" RowSpacing="12">
 
         <!-- Server metadata chip: OS/hostname/CLI version/model, fetched best-effort via server:info. -->
         <Border Grid.Row="0"
@@ -27,15 +27,33 @@
                    LineBreakMode="TailTruncation" />
         </Border>
 
+        <!-- Full-text search across session titles AND actual conversation content (server-side,
+             see sessionHistory.searchSessions) - titles alone are often the same auto-generated text
+             across many sessions, so content search is the useful part here. -->
+        <SearchBar Grid.Row="1"
+                   x:Name="SearchBarControl"
+                   Placeholder="会話の内容やタイトルを検索"
+                   TextChanged="OnSearchTextChanged" />
+
+        <!-- Client-side filter only (see HomePage.xaml.cs ApplyArchiveFilter) - no extra server round-trip,
+             since RefreshAsync already fetches every session (archived or not) in one shot. -->
+        <HorizontalStackLayout Grid.Row="2" Spacing="8" HorizontalOptions="End">
+            <Label Text="📦 アーカイブ済みも表示"
+                   FontSize="16"
+                   TextColor="Gray"
+                   VerticalOptions="Center" />
+            <Switch x:Name="ShowArchivedSwitch" Toggled="OnShowArchivedToggled" VerticalOptions="Center" />
+        </HorizontalStackLayout>
+
         <Label x:Name="NotConfiguredLabel"
-               Grid.Row="1"
+               Grid.Row="3"
                Text="サーバーが未設定です。右上の Settings からサーバーURLとトークンを入力してください。"
                IsVisible="False"
                FontSize="20"
                TextColor="Gray"
                Margin="0,20,0,0" />
 
-        <HorizontalStackLayout Grid.Row="2" Spacing="8">
+        <HorizontalStackLayout Grid.Row="4" Spacing="8">
             <ActivityIndicator x:Name="LoadingIndicator" IsRunning="False" IsVisible="False" />
             <Label x:Name="LoadingLabel"
                    Text="Connecting to server… this can take up to 30s while waiting for network permission"
@@ -46,7 +64,7 @@
         </HorizontalStackLayout>
 
         <CollectionView x:Name="SessionsView"
-                        Grid.Row="3"
+                        Grid.Row="5"
                         ItemsSource="{Binding Sessions}"
                         SelectionMode="None">
             <CollectionView.EmptyView>
@@ -68,23 +86,49 @@
                         <Border.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnSessionTapped" CommandParameter="{Binding .}" />
                         </Border.GestureRecognizers>
-                        <VerticalStackLayout Spacing="4">
-                            <HorizontalStackLayout Spacing="6" IsVisible="{Binding Archived}">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="*,Auto" RowSpacing="4">
+                            <HorizontalStackLayout Grid.Row="0" Grid.Column="0" Spacing="6" IsVisible="{Binding Archived}">
                                 <Label Text="📦 Archived" FontSize="17" TextColor="{StaticResource Gray400}" />
                             </HorizontalStackLayout>
-                            <Label Text="{Binding DisplayTitle}"
+                            <!-- "..." card menu: rename (label) / archive toggle. A Label with its own
+                                 TapGestureRecognizer (not a Button) to match the existing tap-target
+                                 pattern used elsewhere in this app (e.g. the message bubble's "🔎 テキスト
+                                 選択" row) - MAUI routes the tap to this innermost recognizer rather than
+                                 bubbling it to the Border's own OnSessionTapped. -->
+                            <Label Grid.Row="0"
+                                   Grid.Column="1"
+                                   Text="⋯"
+                                   FontSize="22"
+                                   FontAttributes="Bold"
+                                   Padding="10,0"
+                                   TextColor="{StaticResource Gray400}"
+                                   VerticalOptions="Start">
+                                <Label.GestureRecognizers>
+                                    <TapGestureRecognizer Tapped="OnCardMenuTapped" CommandParameter="{Binding .}" />
+                                </Label.GestureRecognizers>
+                            </Label>
+                            <Label Grid.Row="1"
+                                   Grid.Column="0"
+                                   Grid.ColumnSpan="2"
+                                   Text="{Binding DisplayTitle}"
                                    FontAttributes="Bold"
                                    FontSize="21"
                                    LineBreakMode="TailTruncation"
                                    MaxLines="2" />
-                            <Label Text="{Binding FolderName, StringFormat='📁 {0}'}"
+                            <Label Grid.Row="2"
+                                   Grid.Column="0"
+                                   Grid.ColumnSpan="2"
+                                   Text="{Binding FolderName, StringFormat='📁 {0}'}"
                                    FontSize="17"
                                    TextColor="{StaticResource Gray300}"
                                    LineBreakMode="TailTruncation" />
-                            <Label Text="{Binding DisplaySubtitle}"
+                            <Label Grid.Row="3"
+                                   Grid.Column="0"
+                                   Grid.ColumnSpan="2"
+                                   Text="{Binding DisplaySubtitle}"
                                    FontSize="18"
                                    TextColor="{StaticResource Gray400}" />
-                        </VerticalStackLayout>
+                        </Grid>
                     </Border>
                 </DataTemplate>
             </CollectionView.ItemTemplate>

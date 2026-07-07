@@ -22,16 +22,42 @@
     </Shell.TitleView>
 
     <ContentPage.ToolbarItems>
-        <ToolbarItem Text="☰" Order="Primary" Priority="0" Clicked="OnSessionsClicked" />
-        <ToolbarItem Text="New chat" Order="Primary" Priority="1" Clicked="OnNewChatClicked" />
-        <ToolbarItem Text="Settings" Order="Primary" Priority="2" Clicked="OnSettingsClicked" />
+        <ToolbarItem Text="🔍" Order="Primary" Priority="0" Clicked="OnToggleSearchClicked" />
+        <ToolbarItem Text="☰" Order="Primary" Priority="1" Clicked="OnSessionsClicked" />
+        <ToolbarItem Text="New chat" Order="Primary" Priority="2" Clicked="OnNewChatClicked" />
+        <ToolbarItem Text="Settings" Order="Primary" Priority="3" Clicked="OnSettingsClicked" />
     </ContentPage.ToolbarItems>
 
     <Grid>
-        <Grid RowDefinitions="*,Auto,Auto,Auto" Padding="0">
+        <Grid RowDefinitions="Auto,*,Auto,Auto,Auto" Padding="0">
+
+            <!-- In-chat "find" bar (PBI follow-up: search inside the current conversation, not just
+                 across sessions - see HomePage's server-side search for that). Pure client-side
+                 substring match over the already-loaded Messages list; no server round-trip needed
+                 since the whole conversation is already in memory. -->
+            <Grid x:Name="SearchBarRow"
+                  Grid.Row="0"
+                  IsVisible="False"
+                  ColumnDefinitions="*,Auto,Auto,Auto"
+                  ColumnSpacing="6"
+                  Padding="8,6"
+                  BackgroundColor="{AppThemeBinding Light=#F2F2F7, Dark={StaticResource Gray900}}">
+                <SearchBar x:Name="ChatSearchBar"
+                           Grid.Column="0"
+                           Placeholder="この会話内を検索"
+                           TextChanged="OnChatSearchTextChanged" />
+                <Label x:Name="SearchCounterLabel"
+                       Grid.Column="1"
+                       Text="0/0"
+                       VerticalOptions="Center"
+                       TextColor="Gray"
+                       FontSize="14" />
+                <Button Grid.Column="2" Text="↑" WidthRequest="40" Clicked="OnSearchPrevClicked" />
+                <Button Grid.Column="3" Text="↓" WidthRequest="40" Clicked="OnSearchNextClicked" />
+            </Grid>
 
             <CollectionView x:Name="MessagesView"
-                            Grid.Row="0"
+                            Grid.Row="1"
                             Margin="8"
                             ItemsUpdatingScrollMode="KeepLastItemInView"
                             ItemSizingStrategy="MeasureAllItems"
@@ -44,6 +70,7 @@
                                    CornerRadius="12"
                                    HasShadow="False"
                                    IsClippedToBounds="False"
+                                   BorderColor="{Binding IsSearchHighlighted, Converter={StaticResource BoolToSearchHighlightBorderConverter}}"
                                    IsVisible="{Binding IsTool, Converter={StaticResource InvertedBoolConverter}}"
                                    BackgroundColor="{Binding IsUser, Converter={StaticResource BoolToBubbleColorConverter}}"
                                    HorizontalOptions="{Binding IsUser, Converter={StaticResource BoolToAlignConverter}}"
@@ -98,7 +125,7 @@
                                          rendered as a visible black bar instead of Transparent on Mac
                                          Catalyst; Label has no separate fill color to fight with.
                                     -->
-                                    <Label Text="" HeightRequest="{Binding NeedsBottomBuffer, Converter={StaticResource NeedsBottomBufferToHeightConverter}}" InputTransparent="True" />
+                                    <Label Text="" HeightRequest="{Binding ., Converter={StaticResource MessageToBubbleBottomPaddingConverter}}" InputTransparent="True" />
                                 </VerticalStackLayout>
                             </Frame>
                             <Label Grid.Row="1"
@@ -144,7 +171,7 @@
                  the instant *anything* visible happens - including a tool call starting - so relying on
                  that alone left the user unable to tell whether a multi-tool-call turn had actually
                  finished or was still working. See PBI-015). -->
-            <HorizontalStackLayout Grid.Row="1"
+            <HorizontalStackLayout Grid.Row="2"
                                    IsVisible="{Binding IsSending}"
                                    Spacing="6"
                                    Margin="12,0,12,4">
@@ -162,7 +189,7 @@
 
             <!-- Pending attachment strip: images pasted via the 📎 button, staged for the next
                  message and removable individually before Send (PBI-019). -->
-            <CollectionView Grid.Row="2"
+            <CollectionView Grid.Row="3"
                             ItemsSource="{Binding PendingAttachments}"
                             IsVisible="{Binding HasPendingAttachments}"
                             HeightRequest="76"
@@ -192,7 +219,7 @@
                 </CollectionView.ItemTemplate>
             </CollectionView>
 
-            <Border Grid.Row="3"
+            <Border Grid.Row="4"
                     Margin="8"
                     Padding="10,8"
                     StrokeShape="RoundRectangle 20"

@@ -80,6 +80,22 @@ public class ChatMessage : INotifyPropertyChanged
         }
     }
 
+    bool _isSearchHighlighted;
+
+    /// <summary>True for the single message currently focused by the in-chat "find" bar (MainPage) -
+    /// drives a highlighted border on its bubble so the user can see which of possibly several matches
+    /// they've scrolled to.</summary>
+    public bool IsSearchHighlighted
+    {
+        get => _isSearchHighlighted;
+        set
+        {
+            if (_isSearchHighlighted == value) return;
+            _isSearchHighlighted = value;
+            OnPropertyChanged();
+        }
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     void OnPropertyChanged([CallerMemberName] string? propertyName = null)

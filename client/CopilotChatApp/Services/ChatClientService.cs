@@ -14,7 +14,9 @@ public class ChatClientService : IAsyncDisposable
     CancellationTokenSource? _backgroundConnectCts;
     readonly Dictionary<string, TaskCompletionSource<McpResult>> _pendingMcpRequests = new();
     readonly Dictionary<string, TaskCompletionSource<SessionsListResult>> _pendingSessionsListRequests = new();
+    readonly Dictionary<string, TaskCompletionSource<SessionsListResult>> _pendingSessionsSearchRequests = new();
     readonly Dictionary<string, TaskCompletionSource<SessionsHistoryResult>> _pendingSessionsHistoryRequests = new();
+
     readonly Dictionary<string, TaskCompletionSource<FsListDirResult>> _pendingFsListDirRequests = new();
     readonly Dictionary<string, TaskCompletionSource<FsGitCloneResult>> _pendingFsGitCloneRequests = new();
     readonly Dictionary<string, TaskCompletionSource<ServerInfoResult>> _pendingServerInfoRequests = new();
@@ -225,6 +227,39 @@ public class ChatClientService : IAsyncDisposable
         finally
         {
             _pendingSessionsListRequests.Remove(requestId);
+        }
+    }
+
+    /// <summary>Full-text search across session titles and actual conversation content (see server's
+    /// sessionHistory.searchSessions) - client-side archive filtering (HomePage) is applied on top of
+    /// whatever this returns, same as ListSessionsAsync.</summary>
+    public async Task<List<SessionSummary>> SearchSessionsAsync(string query, CancellationToken ct = default)
+    {
+        if (_socket is null || _socket.State != WebSocketState.Open)
+        {
+            throw new InvalidOperationException("Not connected to server.");
+        }
+
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<SessionsListResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingSessionsSearchRequests[requestId] = tcs;
+
+        try
+        {
+            var payload = JsonSerializer.Serialize(new OutgoingSessionsSearchMessage { RequestId = requestId, Query = query });
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
+
+            var result = await WaitWithTimeoutAsync(tcs, ct);
+            if (!result.Ok)
+            {
+                throw new InvalidOperationException(result.Error ?? "Failed to search sessions");
+            }
+            return result.Sessions ?? new List<SessionSummary>();
+        }
+        finally
+        {
+            _pendingSessionsSearchRequests.Remove(requestId);
         }
     }
 
@@ -548,6 +583,12 @@ public class ChatClientService : IAsyncDisposable
                     sessionsListTcs.TrySetResult(new SessionsListResult(msg.Ok ?? false, msg.Error, msg.Sessions));
                 }
                 break;
+            case "sessions:search-result":
+                if (msg.RequestId is not null && _pendingSessionsSearchRequests.Remove(msg.RequestId, out var sessionsSearchTcs))
+                {
+                    sessionsSearchTcs.TrySetResult(new SessionsListResult(msg.Ok ?? false, msg.Error, msg.Sessions));
+                }
+                break;
             case "sessions:history-result":
                 if (msg.RequestId is not null && _pendingSessionsHistoryRequests.Remove(msg.RequestId, out var sessionsHistoryTcs))
                 {
@@ -676,6 +717,13 @@ public class ChatClientService : IAsyncDisposable
     {
         [JsonPropertyName("type")] public string Type { get; set; } = "sessions:list";
         [JsonPropertyName("requestId")] public string RequestId { get; set; } = string.Empty;
+    }
+
+    class OutgoingSessionsSearchMessage
+    {
+        [JsonPropertyName("type")] public string Type { get; set; } = "sessions:search";
+        [JsonPropertyName("requestId")] public string RequestId { get; set; } = string.Empty;
+        [JsonPropertyName("query")] public string Query { get; set; } = string.Empty;
     }
 
     class OutgoingSessionsHistoryMessage

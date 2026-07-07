@@ -12,16 +12,13 @@
             </ResourceDictionary.MergedDictionaries>
             <!-- Overridden at startup and whenever the user changes it in Settings (see SettingsService.ChatFontSize). -->
             <x:Double x:Key="ChatFontSize">15</x:Double>
-            <!-- Scales with ChatFontSize (see SettingsService.ApplyChatFontSizeResource) - extra bottom room in
-                 each chat bubble so MarkdownView's custom height calculation, which lands short by roughly
-                 one line's worth regardless of font size, never clips the last line of text. -->
-            <x:Double x:Key="ChatBubbleBottomPadding">36</x:Double>
             <converters:BoolToBubbleColorConverter x:Key="BoolToBubbleColorConverter" />
             <converters:BoolToTextColorConverter x:Key="BoolToTextColorConverter" />
             <converters:BoolToAlignConverter x:Key="BoolToAlignConverter" />
             <converters:InvertedBoolConverter x:Key="InvertedBoolConverter" />
             <converters:WidthToBubbleMaxWidthConverter x:Key="WidthToBubbleMaxWidthConverter" />
-            <converters:NeedsBottomBufferToHeightConverter x:Key="NeedsBottomBufferToHeightConverter" />
+            <converters:MessageToBubbleBottomPaddingConverter x:Key="MessageToBubbleBottomPaddingConverter" />
+            <converters:BoolToSearchHighlightBorderConverter x:Key="BoolToSearchHighlightBorderConverter" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

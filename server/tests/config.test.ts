@@ -1,3 +1,10 @@
+// config.ts calls dotenv.config() on import, which would otherwise repopulate any env var this
+// file deletes (e.g. BROWSE_ROOTS below) straight back out of the real server/.env on a dev
+// machine that has one configured - making "unset" tests pass/fail depending on what's in that
+// file rather than on config.ts's own fallback logic. Stub it out so every test here is driven
+// purely by whatever this file explicitly sets on process.env.
+jest.mock('dotenv', () => ({ config: jest.fn() }));
+
 describe('config AUTH_TOKEN validation', () => {
   const originalAuthToken = process.env.AUTH_TOKEN;
 

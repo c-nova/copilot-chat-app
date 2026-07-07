@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Linq;
 using CopilotChatApp.Services;
 
 namespace CopilotChatApp.Views;
@@ -18,6 +19,12 @@ namespace CopilotChatApp.Views;
 public partial class HomePage : ContentPage
 {
     readonly ChatClientService _client = new();
+
+    /// <summary>Every session fetched from the server, regardless of archived status - the source list
+    /// that <see cref="Sessions"/> is filtered from (see <see cref="ApplyArchiveFilter"/>). Kept
+    /// separately so toggling "show archived" doesn't need another server round-trip.</summary>
+    readonly List<SessionSummary> _allSessions = new();
+    bool _showArchived;
 
     public ObservableCollection<SessionSummary> Sessions { get; } = new();
 
@@ -57,8 +64,9 @@ public partial class HomePage : ContentPage
         {
             await EnsureConnectedAsync();
             var sessions = await _client.ListSessionsAsync();
-            Sessions.Clear();
-            foreach (var s in sessions) Sessions.Add(s);
+            _allSessions.Clear();
+            _allSessions.AddRange(sessions);
+            ApplyArchiveFilter();
             await RefreshServerInfoAsync();
         }
         catch (Exception ex)
@@ -152,5 +160,106 @@ public partial class HomePage : ContentPage
     async void OnSettingsClicked(object? sender, EventArgs e)
     {
         await Navigation.PushAsync(new SettingsPage(_client));
+    }
+
+    /// <summary>Re-populates the visible <see cref="Sessions"/> from <see cref="_allSessions"/> according
+    /// to the current "show archived" switch state - no server call, this is purely a client-side
+    /// filter over data already fetched in RefreshAsync.</summary>
+    void ApplyArchiveFilter()
+    {
+        Sessions.Clear();
+        foreach (var s in _allSessions.Where(s => _showArchived || !s.Archived)) Sessions.Add(s);
+    }
+
+    void OnShowArchivedToggled(object? sender, ToggledEventArgs e)
+    {
+        _showArchived = e.Value;
+        // A search may currently be active (SearchBar not empty) - re-apply it against the same
+        // "show archived" state rather than falling back to the unfiltered list underneath it.
+        if (!string.IsNullOrWhiteSpace(SearchBarControl.Text))
+        {
+            OnSearchTextChanged(SearchBarControl, new TextChangedEventArgs(SearchBarControl.Text, SearchBarControl.Text));
+            return;
+        }
+        ApplyArchiveFilter();
+    }
+
+    CancellationTokenSource? _searchCts;
+
+    /// <summary>
+    /// Full-text search (server-side, across session titles AND conversation content - see
+    /// ChatClientService.SearchSessionsAsync). Debounced so fast typing doesn't fire a request per
+    /// keystroke; clearing the box reverts to the normal <see cref="_allSessions"/> listing.
+    /// </summary>
+    async void OnSearchTextChanged(object? sender, TextChangedEventArgs e)
+    {
+        _searchCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _searchCts = cts;
+
+        var query = e.NewTextValue?.Trim() ?? string.Empty;
+        if (string.IsNullOrEmpty(query))
+        {
+            ApplyArchiveFilter();
+            return;
+        }
+
+        try
+        {
+            await Task.Delay(300, cts.Token);
+            await EnsureConnectedAsync();
+            var results = await _client.SearchSessionsAsync(query, cts.Token);
+            if (cts.IsCancellationRequested) return;
+            Sessions.Clear();
+            foreach (var s in results.Where(s => _showArchived || !s.Archived)) Sessions.Add(s);
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded by a newer keystroke (or the page closing) - ignore.
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[HomePage] Search failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Shown from the "⋯" on each session card (PBI-020 follow-up: session management UI). Both
+    /// SetSessionLabelAsync/SetSessionArchivedAsync just persist to the server's sidecar metadata
+    /// store - a full RefreshAsync afterwards is the simplest way to reflect the change, since
+    /// SessionSummary is a plain POCO with no change notification of its own to patch the existing
+    /// ObservableCollection entry in place.
+    /// </summary>
+    async void OnCardMenuTapped(object? sender, TappedEventArgs e)
+    {
+        if (e.Parameter is not SessionSummary session) return;
+
+        var archiveActionText = session.Archived ? "アーカイブ解除" : "アーカイブ";
+        var choice = await DisplayActionSheet(session.DisplayTitle, "キャンセル", null, "ラベルを編集", archiveActionText);
+
+        try
+        {
+            if (choice == "ラベルを編集")
+            {
+                var newLabel = await DisplayPromptAsync(
+                    "ラベルを編集",
+                    "このセッションの表示名を入力してください(空にすると解除されます)",
+                    initialValue: session.Label ?? "",
+                    maxLength: 100);
+                if (newLabel is null) return; // cancelled
+                var trimmed = newLabel.Trim();
+                await _client.SetSessionLabelAsync(session.Id, string.IsNullOrEmpty(trimmed) ? null : trimmed);
+                await RefreshAsync();
+            }
+            else if (choice == archiveActionText)
+            {
+                await _client.SetSessionArchivedAsync(session.Id, !session.Archived);
+                await RefreshAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlert("Error", $"操作に失敗しました: {ex.Message}", "OK");
+        }
     }
 }

@@ -124,3 +124,48 @@ export function getSessionHistory(sessionId: string): SessionTurn[] {
     db.close();
   }
 }
+
+/**
+ * Full-text search across session titles (summary) AND the actual conversation content (turns'
+ * user_message/assistant_response) - the CLI's own auto-generated summary is often the same generic
+ * text across many sessions (see DisplayTitle's fallback chain client-side), so title-only search
+ * would miss most real matches. Case-insensitive substring match (SQL LIKE with both sides wrapped
+ * in %) - good enough for a personal session list; not attempting real FTS ranking.
+ */
+export function searchSessions(query: string, allowedRoots: string[], limit = 50): SessionSummary[] {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  const db = openDb();
+  if (!db) return [];
+  try {
+    const like = `%${trimmed}%`;
+    const stmt = db.prepare(
+      `SELECT s.id as id, s.cwd as cwd, s.summary as summary, s.created_at as createdAt, s.updated_at as updatedAt,
+              (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) as turnCount
+       FROM sessions s
+       WHERE s.summary LIKE ?
+          OR EXISTS (
+               SELECT 1 FROM turns t
+               WHERE t.session_id = s.id
+                 AND (t.user_message LIKE ? OR t.assistant_response LIKE ?)
+             )
+       ORDER BY s.updated_at DESC
+       LIMIT ?`,
+    );
+    const rows = stmt.all(like, like, like, Math.max(limit * 10, 200)) as any[];
+    const mapped = rows.map((r) => ({
+      id: String(r.id),
+      cwd: r.cwd ? String(r.cwd) : '',
+      summary: r.summary ? String(r.summary) : '(no summary)',
+      createdAt: String(r.createdAt),
+      updatedAt: String(r.updatedAt),
+      turnCount: Number(r.turnCount),
+    }));
+    return mapped.filter((s) => s.cwd && isPathAllowed(s.cwd, allowedRoots)).slice(0, limit);
+  } catch (err) {
+    console.warn('[sessionHistory] searchSessions failed:', (err as Error)?.message);
+    return [];
+  } finally {
+    db.close();
+  }
+}

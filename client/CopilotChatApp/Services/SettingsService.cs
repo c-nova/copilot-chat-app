@@ -34,18 +34,6 @@ public static class SettingsService
     public const double MinChatFontSize = 12.0;
     public const double MaxChatFontSize = 28.0;
 
-    /// <summary>Key of the dynamic resource each chat bubble's bottom spacer binds its HeightRequest to (see App.xaml / MainPage.xaml).</summary>
-    public const string ChatBubbleBottomPaddingResourceKey = "ChatBubbleBottomPadding";
-
-    /// <summary>
-    /// Ratio applied to ChatFontSize to compute ChatBubbleBottomPadding. Derived empirically: a flat 36px
-    /// buffer fixed the message-clipping bug at the default 15pt size (36 / 15 = 2.4), but a flat pixel
-    /// value doesn't scale - at a larger chosen font size, one line of text is taller, so the same 36px
-    /// stops being enough and the clipping bug reappears. Scaling the buffer with the font size keeps it
-    /// proportionally correct at any size.
-    /// </summary>
-    const double ChatBubbleBottomPaddingRatio = 2.4;
-
     public static string ServerUrl
     {
         get => Preferences.Default.Get(ServerUrlKey, string.Empty);
@@ -76,7 +64,6 @@ public static class SettingsService
         if (Application.Current is not null)
         {
             Application.Current.Resources[ChatFontSizeResourceKey] = size;
-            Application.Current.Resources[ChatBubbleBottomPaddingResourceKey] = size * ChatBubbleBottomPaddingRatio;
         }
     }
 

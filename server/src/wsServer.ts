@@ -8,7 +8,7 @@ import { gitClone, listDir } from './fsBrowser';
 import { addMcpServer, listMcpServers, removeMcpServer } from './mcpManager';
 import { isPathAllowed } from './pathAccess';
 import { ClientMessage, ServerMessage } from './protocol';
-import { getSessionCwd, getSessionHistory, listSessions } from './sessionHistory';
+import { getSessionCwd, getSessionHistory, listSessions, searchSessions } from './sessionHistory';
 import { getSessionMeta, setSessionArchived, setSessionLabel } from './sessionMeta';
 import { getServerInfo } from './serverInfo';
 
@@ -237,6 +237,19 @@ export function createChatServer(): WebSocketServer {
           send(ws, { type: 'sessions:history-result', requestId: msg.requestId, ok: true, sessionId: msg.sessionId, turns });
         } catch (err: any) {
           send(ws, { type: 'sessions:history-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
+        }
+        return;
+      }
+
+      if (msg.type === 'sessions:search') {
+        try {
+          const sessions = searchSessions(msg.query, [...config.browseRoots, config.workDir]).map((s) => {
+            const meta = getSessionMeta(s.id);
+            return { ...s, label: meta?.label, archived: meta?.archived ?? false };
+          });
+          send(ws, { type: 'sessions:search-result', requestId: msg.requestId, ok: true, sessions });
+        } catch (err: any) {
+          send(ws, { type: 'sessions:search-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
         }
         return;
       }

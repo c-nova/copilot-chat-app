@@ -59,6 +59,13 @@ export interface ClientSessionsHistoryMessage {
   sessionId: string;
 }
 
+/** Full-text search across session titles and actual conversation content (see sessionHistory.searchSessions). */
+export interface ClientSessionsSearchMessage {
+  type: 'sessions:search';
+  requestId: string;
+  query: string;
+}
+
 /** Lists subdirectories of `path` for the new-session folder picker. Omit `path` to start at the top. */
 export interface ClientFsListDirMessage {
   type: 'fs:list-dir';
@@ -97,6 +104,7 @@ export type ClientMessage =
   | ClientMcpRemoveMessage
   | ClientSessionsListMessage
   | ClientSessionsHistoryMessage
+  | ClientSessionsSearchMessage
   | ClientFsListDirMessage
   | ClientFsGitCloneMessage
   | ClientServerInfoMessage
@@ -179,6 +187,14 @@ export interface ServerSessionsListResultMessage {
   error?: string;
 }
 
+export interface ServerSessionsSearchResultMessage {
+  type: 'sessions:search-result';
+  requestId: string;
+  ok: boolean;
+  sessions?: SessionSummaryDto[];
+  error?: string;
+}
+
 export interface ServerSessionsHistoryResultMessage {
   type: 'sessions:history-result';
   requestId: string;
@@ -249,6 +265,7 @@ export type ServerMessage =
   | ServerMcpResultMessage
   | ServerSessionsListResultMessage
   | ServerSessionsHistoryResultMessage
+  | ServerSessionsSearchResultMessage
   | ServerFsListDirResultMessage
   | ServerFsGitCloneResultMessage
   | ServerInfoResultMessage
