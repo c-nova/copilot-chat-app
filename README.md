@@ -130,9 +130,11 @@ own sessions (nothing is synced or merged server-side), and the client just fans
   it), or just tap a session on the Home screen - opening it automatically switches to that session's server.
 - **Remove a server**: tap "削除"/"Delete" on its row in Settings. This only removes it from *this app's*
   configuration; the server itself and its session history are untouched.
-- Sessions from an unreachable server simply don't show up (rather than blocking the rest of the list) - if
-  you expect to see a server's sessions and don't, check that its `server/` process is actually running and
-  reachable from this device.
+- The Home screen fetches every configured server in parallel and shows each one's sessions as soon as
+  they're back, rather than waiting for the slowest one - a server still being connected to shows a "⋯" chip,
+  a reachable one shows its OS glyph (tap to filter the list to just that server), and one that couldn't be
+  reached in time shows a grayed-out "⚠️" instead of silently disappearing. Tap the 🔄 toolbar button to
+  retry all servers again, e.g. after bringing a previously-down one back up.
 
 ## Notes / limitations
 
@@ -293,9 +295,10 @@ dotnet build -f net10.0-ios                   # iOS(Xcode+署名設定入りのM
   に自動で切り替わります。
 - **サーバーを削除**: Settingsのその行にある「削除」をタップ。これは*このアプリの設定から*削除する
   だけで、サーバー自体やそのセッション履歴には影響しません。
-- 到達できないサーバーのセッションは(一覧全体をブロックせず)単に表示されません — あるサーバーの
-  セッションが見えるはずなのに見えない場合は、その `server/` プロセスが実際に起動していて、この端末
-  から到達可能か確認してください。
+- Home画面は設定済みの全サーバーに並行して問い合わせ、一番遅いサーバーを待たずに繋がった順にセッションを
+  表示します — 接続試行中のサーバーは「⋯」、繋がったサーバーはOSアイコン(タップでそのサーバーだけに
+  絞り込み)、時間内に繋がらなかったサーバーはグレーアウトの「⚠️」で表示され、黙って消えることはあり
+  ません。止まっていたサーバーを再起動した後などは、ツールバーの🔄で全サーバーへの再接続をやり直せます。
 
 ## 注意点・制限事項
 

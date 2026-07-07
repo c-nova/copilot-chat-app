@@ -203,9 +203,11 @@ Tap **Save** to save it. If using an iPhone, make sure it's on the same Wi-Fi (s
 You can add more than one server profile - e.g. one for your Mac and one for your Windows PC, each running
 its own `copilot-chat-app` server. In Settings, tap **"+ Add new server"**, fill in Name/Server URL/Auth Token,
 and Save. The Home screen connects to *every* configured server in parallel and merges all their sessions into
-one list, each tagged with an OS glyph + server name so you can tell them apart. Tap a server's name in the
-summary chip at the top of the Home screen to filter the list down to just that server (tap it again to clear
-the filter).
+one list, each tagged with an OS glyph + server name so you can tell them apart. Servers still being connected
+to show a "⋯" chip, and a server that couldn't be reached shows a grayed-out "⚠️" instead of blocking the
+rest of the list from appearing - tap the 🔄 button in the toolbar to retry every server again (e.g. after
+starting a server you'd left off). Tap a reachable server's name in the summary chip to filter the list down
+to just that server (tap it again to clear the filter).
 
 Tapping a session (or starting a New Chat) automatically switches to that session's server, so you don't need
 to manually pick the right one in Settings first - just tap what you want to open.
@@ -284,7 +286,10 @@ PC's workspace. Don't share the `Server URL` and `Auth Token` with anyone/any de
 
 ### Adding an MCP server
 
-Use **Manage MCP Servers** in Settings to add/remove servers directly from the app.
+Use **Manage MCP Servers** in Settings to add/remove servers directly from the app. MCP servers are managed
+per-server, not globally - the page shows "管理対象サーバー: <name>" at the top so you always know which
+server's list you're editing (whichever profile is currently active; tap a different profile row in Settings
+first if you meant to manage a different server).
 
 - `stdio`: enter the server name, launch command, and arguments (space-separated)
 - `http`: enter the server name and URL
@@ -312,7 +317,7 @@ mode (`--allow-all-tools`). When one of its tools is called during a chat, the s
 | Only the iPhone can't connect                                | Same Wi-Fi? Is port 5219 blocked by the router/PC firewall?                                                             |
 | No reply comes back                                          | Is `copilot login` done on the PC/Mac running the server? Any errors in the server log?                                 |
 | Sessions/chat only fail right after installing on iOS         | Answer the iOS local-network-access permission prompt, then wait a bit (or go back to the chat screen and reopen it). It keeps retrying automatically in the background. |
-| One server's sessions never show up on Home                  | Check that its `server/` process is actually running and reachable from this device - an unreachable server is skipped silently rather than blocking the rest of the list. |
+| One server's sessions never show up on Home                  | Check that its `server/` process is actually running and reachable from this device - it'll show a grayed-out ⚠️ chip instead of blocking the rest of the list. Start the server, then tap the 🔄 button on the Home screen to retry without leaving the page. |
 
 ---
 
@@ -520,8 +525,11 @@ VS側がやってくれます。
 `copilot-chat-app` サーバーを動かして両方登録する、といった使い方です。Settingsで
 **「+ 新しいサーバーを追加」** をタップし、Name/Server URL/Auth Tokenを入力してSave。
 Home画面は設定済みの*全サーバー*に並行接続し、すべてのセッションを1つのリストにまとめて
-表示します(OSアイコン+サーバー名のバッジ付きで区別可能)。Home画面上部のサマリーチップで
-サーバー名をタップすると、そのサーバーだけにフィルタできます(もう一度タップで解除)。
+表示します(OSアイコン+サーバー名のバッジ付きで区別可能)。接続試行中のサーバーは「⋯」、
+到達できなかったサーバーは一覧全体をブロックする代わりにグレーアウトの「⚠️」で表示されます —
+止めていたサーバーを起動したら、ツールバーの🔄ボタンで全サーバーへの再接続をやり直せます。
+Home画面上部のサマリーチップで、接続できているサーバー名をタップすると、そのサーバーだけに
+フィルタできます(もう一度タップで解除)。
 
 セッションをタップ(または新規チャット開始)すると、自動的にそのセッションのサーバーに
 切り替わるので、事前にSettingsで手動選択する必要はありません。
@@ -603,7 +611,10 @@ copilot-chat-app\server\workspace
 
 ### MCPサーバーを追加したい場合
 
-Settings画面の **Manage MCP Servers** から、アプリ内で直接 追加・削除ができます。
+Settings画面の **Manage MCP Servers** から、アプリ内で直接 追加・削除ができます。MCPサーバーは
+グローバルではなく**サーバーごと**に管理されます — 画面上部に「管理対象サーバー: <名前>」と表示され、
+今どのサーバーのリストを編集しているか(=現在アクティブなプロファイル)が常にわかります。別のサーバーを
+管理したい場合は、先にSettingsで別のプロファイル行をタップしてアクティブに切り替えてください。
 
 - `stdio`: サーバー名・起動コマンド・引数(スペース区切り)を入力
 - `http`: サーバー名・URLを入力
@@ -631,4 +642,4 @@ copilot mcp list
 | iPhoneだけ繋がらない                                          | 同じWi-Fiか、ルーター/PCのファイアウォールでポート5219がブロックされていないか                                                                                    |
 | 返信が来ない                                                  | サーバーを動かしているPC/Macで`copilot login` が済んでいるか、サーバーのログにエラーが出ていないか                                                              |
 | iOSでアプリインストール直後だけSessionsやチャットが繋がらない | iOSのローカルネットワークアクセス許可ダイアログに応答してから、少し待って(または一度チャット画面に戻って)再度開いてみてください。裏で自動的に再接続を試み続けます |
-| 特定のサーバーのセッションがHome画面に一切出てこない               | その `server/` プロセスが実際に起動していて、この端末から到達可能か確認してください — 到達不可なサーバーは一覧全体をブロックせず黙ってスキップされます |
+| 特定のサーバーのセッションがHome画面に一切出てこない               | その `server/` プロセスが実際に起動していて、この端末から到達可能か確認してください — 一覧全体をブロックする代わりにグレーアウトの⚠️チップで表示されます。サーバーを起動したら、Home画面の🔄ボタンで(このページを開き直さずに)再試行できます |
