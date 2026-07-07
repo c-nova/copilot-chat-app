@@ -9,6 +9,7 @@
     <ScrollView>
         <VerticalStackLayout Padding="20" Spacing="16">
 
+            <Label x:Name="TargetServerLabel" FontAttributes="Bold" TextColor="CornflowerBlue" />
             <Label Text="設定済みのMCPサーバー" FontAttributes="Bold" />
             <ActivityIndicator x:Name="LoadingIndicator" IsRunning="False" IsVisible="False" />
             <CollectionView x:Name="ServersView" ItemsSource="{Binding Servers}">

@@ -20,6 +20,9 @@ public partial class McpServersPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
+        var active = SettingsService.GetActiveProfile();
+        var name = active is null || string.IsNullOrWhiteSpace(active.Name) ? "(no name)" : active.Name;
+        TargetServerLabel.Text = $"管理対象サーバー: {name}";
         await EnsureConnectedAsync();
         await RefreshAsync();
     }

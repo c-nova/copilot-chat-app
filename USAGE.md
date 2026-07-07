@@ -57,6 +57,31 @@ dotnet run -f net10.0-windows10.0.19041.0
 
 Runs directly on this PC.
 
+#### Installing a built copy instead of running from source
+
+`dotnet run` above rebuilds and launches from source every time, which is fine for development but not for
+just "install it and use it" on a PC that doesn't have this repo cloned. To produce a standalone, installable
+build instead:
+
+```powershell
+cd copilot-chat-app\client\CopilotChatApp
+dotnet publish -f net10.0-windows10.0.19041.0 -c Release -p:RuntimeIdentifierOverride=win-x64 -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true
+```
+
+This produces a folder at `bin\Release\net10.0-windows10.0.19041.0\win-x64\publish\` containing
+`CopilotChatApp.exe` and everything it needs to run. Copy that whole folder (not just the `.exe`) to wherever
+you want to run it from — including another PC that doesn't have .NET or this repo installed, since
+`WindowsAppSDKSelfContained=true` bundles the runtime — and double-click `CopilotChatApp.exe`. There's no
+installer or Start Menu entry; it's just a folder you can run in place, move around, or delete.
+
+Drop `-p:WindowsAppSDKSelfContained=true` if you'd rather have a much smaller output that relies on the .NET
+runtime already being installed on the machine that runs it.
+
+> This publish flow follows Microsoft's documented "unpackaged .NET MAUI app for Windows" steps but hasn't
+> been run end-to-end on an actual Windows machine as part of writing this doc — if something doesn't match,
+> the [official docs](https://learn.microsoft.com/dotnet/maui/windows/deployment/publish-unpackaged-cli) are
+> the source of truth.
+
 ### macOS (Mac Catalyst)
 
 Requires a Mac + Xcode. Run the following on a Mac (or remote-build via Visual Studio for Mac, or
@@ -67,6 +92,35 @@ cd copilot-chat-app/client/CopilotChatApp
 dotnet build -f net10.0-maccatalyst
 dotnet run -f net10.0-maccatalyst
 ```
+
+#### Installing a built copy instead of running from source
+
+To get an installable app instead of running from source every time:
+
+```bash
+cd copilot-chat-app/client/CopilotChatApp
+dotnet publish -f net10.0-maccatalyst -c Release
+```
+
+This produces an installer package at
+`bin/Release/net10.0-maccatalyst/publish/CopilotChatApp-1.0.pkg`. Double-click it to install — it installs to
+`/Applications/GitHub Copilot CLI-GUI.app` (the app's display name, from `<ApplicationTitle>` in the
+`.csproj`), just like any other Mac app installer.
+
+Because this `.pkg` is unsigned (no Apple Developer ID certificate is configured for this project), macOS
+Gatekeeper would normally refuse to open it — but a file built locally on your own Mac has no
+`com.apple.quarantine` extended attribute (that flag is only added by the OS when a file arrives via a
+browser download, AirDrop, Mail attachment, etc.), so double-clicking a `.pkg` you just built yourself
+usually just works with no warning (verified: built and installed one this way with zero Gatekeeper
+prompts). If you copy the `.pkg` to a *different* Mac (via AirDrop, a cloud drive, a USB stick that went
+through another machine, etc.), that transfer may add the quarantine flag there, and you'll see "Apple could
+not verify this app is free of malware." To get past that on the receiving Mac, either:
+- System Settings → Privacy & Security → scroll down to find the blocked-app notice → **Open Anyway**, or
+- Strip the flag from the terminal before opening it: `xattr -dr com.apple.quarantine CopilotChatApp-1.0.pkg`
+
+To uninstall, just delete `/Applications/GitHub Copilot CLI-GUI.app` (there's no separate uninstaller;
+`pkgutil --forget com.companyname.copilotchatapp` also clears the installer's receipt if you want a clean
+slate before reinstalling a different version).
 
 ### iOS
 
@@ -321,6 +375,30 @@ dotnet run -f net10.0-windows10.0.19041.0
 
 そのままこのPCで動かせます。
 
+#### ソースからではなく、ビルド済みのものをインストールする
+
+上の`dotnet run`は毎回ソースからビルド&起動するので開発向けです。このリポジトリをクローンしていない
+PCに「インストールして使うだけ」にしたい場合は、単体で動く成果物を作ります:
+
+```powershell
+cd copilot-chat-app\client\CopilotChatApp
+dotnet publish -f net10.0-windows10.0.19041.0 -c Release -p:RuntimeIdentifierOverride=win-x64 -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true
+```
+
+`bin\Release\net10.0-windows10.0.19041.0\win-x64\publish\` フォルダに`CopilotChatApp.exe`と実行に必要な
+ファイル一式が生成されます。この**フォルダごと**(`.exe`だけでなく)好きな場所にコピーして
+`CopilotChatApp.exe`をダブルクリックしてください — `WindowsAppSDKSelfContained=true`によりランタイムも
+同梱されるので、.NETやこのリポジトリが入っていない別PCでも動きます。インストーラーやスタートメニュー
+登録は無く、その場で実行・移動・削除ができるフォルダというだけです。
+
+もっと小さい成果物にしたい場合は`-p:WindowsAppSDKSelfContained=true`を外してください(その場合、実行
+するPCに.NETランタイムが別途インストール済みである必要があります)。
+
+> このpublish手順はMicrosoft公式の「.NET MAUI Windowsアプリのunpackaged公開」手順に沿っていますが、
+> このドキュメント執筆時点で実機のWindows環境ではエンドツーエンドで検証していません — 齟齬があれば
+> [公式ドキュメント](https://learn.microsoft.com/dotnet/maui/windows/deployment/publish-unpackaged-cli)を
+> 正としてください。
+
 ### macOS (Mac Catalyst)
 
 Mac + Xcode が必要です。Macで以下を実行(またはVisual Studio for Macや、Windows版VSから「Macとペア設定」でリモートビルド):
@@ -330,6 +408,34 @@ cd copilot-chat-app/client/CopilotChatApp
 dotnet build -f net10.0-maccatalyst
 dotnet run -f net10.0-maccatalyst
 ```
+
+#### ソースからではなく、ビルド済みのものをインストールする
+
+毎回ソースから実行するのではなく、インストール可能なアプリを作るには:
+
+```bash
+cd copilot-chat-app/client/CopilotChatApp
+dotnet publish -f net10.0-maccatalyst -c Release
+```
+
+`bin/Release/net10.0-maccatalyst/publish/CopilotChatApp-1.0.pkg` にインストーラーが生成されます。
+ダブルクリックすればインストールされ、他のMacアプリと同じように
+`/Applications/GitHub Copilot CLI-GUI.app`(アプリ名は`.csproj`の`<ApplicationTitle>`から)に入ります。
+
+この`.pkg`は未署名(このプロジェクトにApple Developer ID証明書は設定していない)なので、本来macOSの
+Gatekeeperに弾かれるはずですが、**自分のMacでローカルビルドしたファイルには`com.apple.quarantine`
+拡張属性が付いていません**(このフラグはブラウザダウンロードやAirDrop、メール添付など、OSが「外から
+来たファイル」と認識したときだけ付与されます)。そのため、自分でビルドした`.pkg`をダブルクリックする
+分には警告なしで普通にインストールできます(検証済み: 実際にこの手順でビルド&インストールし、
+Gatekeeperの警告は一切出ませんでした)。この`.pkg`をAirDropやクラウドストレージ経由で**別のMac**に
+コピーした場合は、そちらではquarantineフラグが付与されて「Appleはこのアプリに問題がないことを
+確認できません」と出ることがあります。その場合は:
+- システム設定 → プライバシーとセキュリティ → 下の方にブロック通知が出ているので **このまま開く**、または
+- ターミナルで開く前にフラグを剥がす: `xattr -dr com.apple.quarantine CopilotChatApp-1.0.pkg`
+
+アンインストールは`/Applications/GitHub Copilot CLI-GUI.app`を削除するだけです(専用アンインストーラー
+は無し。別バージョンを入れ直す前にまっさらにしたい場合は
+`pkgutil --forget com.companyname.copilotchatapp`でインストーラーのレシートも消せます)。
 
 ### iOS
 
