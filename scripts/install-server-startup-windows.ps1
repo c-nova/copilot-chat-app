@@ -13,11 +13,13 @@
     only what's already built into Windows - no NSSM/node-windows/third-party service wrapper.
 
     This is scoped to the CURRENT user's logon session (mirrors the macOS LaunchAgent counterpart,
-    which is also per-user, not a system-wide daemon). Registering a Scheduled Task normally does
-    NOT require Administrator rights - but some corporate-managed PCs restrict this via Group
-    Policy even for standard users (and even under "Run as Administrator"). If registration fails
-    with an access-denied error, this script automatically falls back to creating a shortcut in
-    your Startup folder instead (`shell:startup`), which almost never needs special permissions -
+    which is also per-user, not a system-wide daemon). Registering a Scheduled Task sometimes needs
+    an elevated (Administrator) PowerShell session on corporate-managed PCs, even though a plain
+    standard-user account can often do it directly - if it fails with an access-denied error, try
+    re-running from "Run as Administrator" first. Some corporate Group Policies restrict Task
+    Scheduler entirely, even for admins; in that case (or if you'd rather not elevate), this script
+    automatically falls back to creating a shortcut in your Startup folder instead (`shell:startup`),
+    which almost never needs special permissions -
     the tradeoff is no automatic restart-on-crash, just "starts when you log in".
 
 .PARAMETER Uninstall
@@ -156,8 +158,11 @@ try {
 catch {
     Write-Host ""
     Write-Host "Couldn't register the Scheduled Task: $($_.Exception.Message)" -ForegroundColor Yellow
-    Write-Host "This commonly happens on corporate-managed PCs where Group Policy restricts Task" -ForegroundColor Yellow
-    Write-Host "Scheduler for standard users, even when 'Run as Administrator'." -ForegroundColor Yellow
+    Write-Host "Most commonly this just means this PowerShell session isn't elevated - try closing" -ForegroundColor Yellow
+    Write-Host "this window and re-running the script from an Administrator PowerShell (right-click" -ForegroundColor Yellow
+    Write-Host "PowerShell -> 'Run as Administrator'). Some corporate-managed PCs restrict Task" -ForegroundColor Yellow
+    Write-Host "Scheduler via Group Policy even for admins, in which case falling back below is" -ForegroundColor Yellow
+    Write-Host "expected - but it's worth trying elevated first." -ForegroundColor Yellow
     Install-StartupShortcutFallback
 }
 
