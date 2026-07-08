@@ -71,13 +71,18 @@
                                    IsClippedToBounds="False"
                                    BorderColor="{Binding IsSearchHighlighted, Converter={StaticResource BoolToSearchHighlightBorderConverter}}"
                                    IsVisible="{Binding IsTool, Converter={StaticResource InvertedBoolConverter}}"
-                                   BackgroundColor="{Binding IsUser, Converter={StaticResource BoolToBubbleColorConverter}}"
+                                   BackgroundColor="{Binding ., Converter={StaticResource MessageToBubbleColorConverter}}"
                                    HorizontalOptions="{Binding IsUser, Converter={StaticResource BoolToAlignConverter}}"
                                    MaximumWidthRequest="{Binding Source={x:Reference MessagesView}, Path=Width, Converter={StaticResource WidthToBubbleMaxWidthConverter}}">
                                 <Frame.GestureRecognizers>
                                     <TapGestureRecognizer Tapped="OnMessageTapped" />
                                 </Frame.GestureRecognizers>
                                 <VerticalStackLayout Spacing="2">
+                                    <Label Text="🤖 Message from other Agent"
+                                           FontSize="11"
+                                           FontAttributes="Bold"
+                                           TextColor="#8B5E00"
+                                           IsVisible="{Binding IsFromOtherSession}" />
                                     <CollectionView ItemsSource="{Binding Attachments}"
                                                     IsVisible="{Binding HasAttachments}"
                                                     HeightRequest="72"

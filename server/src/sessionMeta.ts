@@ -12,6 +12,14 @@ export interface SessionMetaEntry {
   label?: string;
   archived?: boolean;
   updatedAt: string;
+  /**
+   * turnIndex values (see SessionTurn.turnIndex) that were dispatched via the session-control MCP
+   * server's run_turn_on_session tool rather than typed by a human in the app - lets the client
+   * show those turns distinctly ("message from another session") instead of looking like a normal
+   * turn the session's own user typed. Sidecar data, same rationale as label/archived: the CLI's
+   * session-store.db has no concept of turn origin and we never write to that db.
+   */
+  sessionControlTurnIndexes?: number[];
 }
 
 type SessionMetaStore = Record<string, SessionMetaEntry>;
@@ -75,4 +83,18 @@ export function deleteSessionMeta(sessionId: string): void {
     delete store[sessionId];
     writeStore(store);
   }
+}
+
+/**
+ * Marks a single turnIndex as having been dispatched via session-control's run_turn_on_session,
+ * so the client can render it distinctly from turns the session's own human user actually typed.
+ * Called by internalControlApi.ts right after a successful cross-session dispatch.
+ */
+export function markSessionControlTurn(sessionId: string, turnIndex: number): void {
+  const store = readStore();
+  const existing = store[sessionId];
+  const indexes = new Set(existing?.sessionControlTurnIndexes ?? []);
+  indexes.add(turnIndex);
+  store[sessionId] = { ...existing, updatedAt: new Date().toISOString(), sessionControlTurnIndexes: [...indexes].sort((a, b) => a - b) };
+  writeStore(store);
 }

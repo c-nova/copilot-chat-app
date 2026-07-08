@@ -16,13 +16,16 @@ jest.mock('../src/sessionHistory', () => ({
 }));
 jest.mock('../src/sessionMeta', () => ({
   getSessionMeta: jest.fn(() => undefined),
+  markSessionControlTurn: jest.fn(),
 }));
 
 import { config } from '../src/config';
 import { createInternalControlApi } from '../src/internalControlApi';
+import { markSessionControlTurn } from '../src/sessionMeta';
 import { ConversationBusyError, runConversationTurn } from '../src/wsServer';
 
 const mockedRunConversationTurn = runConversationTurn as jest.Mock;
+const mockedMarkSessionControlTurn = markSessionControlTurn as jest.Mock;
 
 describe('internal control API', () => {
   let server: ReturnType<typeof createInternalControlApi>;
@@ -109,6 +112,13 @@ describe('internal control API', () => {
       requireExistingSession: true,
       rejectIfBusy: true,
     });
+  });
+
+  it('marks the newly-created turn as session-control-originated after a successful dispatch', async () => {
+    mockedRunConversationTurn.mockResolvedValue({ finalText: 'done', exitCode: 0, sessionId: 's1' });
+    await request('POST', '/internal/run-turn', { sessionId: 's1', message: 'hi' });
+    // getSessionHistory is mocked (module-wide, above) to always return a single turn with turnIndex 0.
+    expect(mockedMarkSessionControlTurn).toHaveBeenCalledWith('s1', 0);
   });
 
   it('returns 409 when runConversationTurn rejects with ConversationBusyError', async () => {

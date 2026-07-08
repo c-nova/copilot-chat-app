@@ -76,4 +76,27 @@ describe('sessionMeta', () => {
     const { getAllSessionMeta } = require('../src/sessionMeta');
     expect(getAllSessionMeta()).toEqual({});
   });
+
+  it('marks a turnIndex as session-control-originated', () => {
+    const { getSessionMeta, markSessionControlTurn } = require('../src/sessionMeta');
+    markSessionControlTurn('session-1', 3);
+    expect(getSessionMeta('session-1')?.sessionControlTurnIndexes).toEqual([3]);
+  });
+
+  it('accumulates multiple marked turnIndexes, sorted, without duplicates', () => {
+    const { getSessionMeta, markSessionControlTurn } = require('../src/sessionMeta');
+    markSessionControlTurn('session-1', 5);
+    markSessionControlTurn('session-1', 1);
+    markSessionControlTurn('session-1', 5);
+    expect(getSessionMeta('session-1')?.sessionControlTurnIndexes).toEqual([1, 5]);
+  });
+
+  it('marking a turn preserves an existing label/archived flag on the same session', () => {
+    const { getSessionMeta, setSessionLabel, markSessionControlTurn } = require('../src/sessionMeta');
+    setSessionLabel('session-1', 'My Project');
+    markSessionControlTurn('session-1', 2);
+    const meta = getSessionMeta('session-1');
+    expect(meta?.label).toBe('My Project');
+    expect(meta?.sessionControlTurnIndexes).toEqual([2]);
+  });
 });

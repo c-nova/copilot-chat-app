@@ -897,4 +897,6 @@ public class SessionTurn
     [JsonPropertyName("userMessage")] public string UserMessage { get; set; } = string.Empty;
     [JsonPropertyName("assistantResponse")] public string AssistantResponse { get; set; } = string.Empty;
     [JsonPropertyName("timestamp")] public string Timestamp { get; set; } = string.Empty;
+    /// <summary>True when this turn was dispatched via the session-control MCP's run_turn_on_session tool rather than typed by this session's own human user (see server/src/sessionMeta.ts).</summary>
+    [JsonPropertyName("fromOtherSession")] public bool FromOtherSession { get; set; }
 }

@@ -177,6 +177,8 @@ export interface SessionTurnDto {
   userMessage: string;
   assistantResponse: string;
   timestamp: string;
+  /** True when this turn was dispatched via the session-control MCP's run_turn_on_session tool rather than typed by this session's own human user (see sessionMeta.ts). Absent/false for normal turns. */
+  fromOtherSession?: boolean;
 }
 
 export interface ServerSessionsListResultMessage {

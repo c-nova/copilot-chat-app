@@ -1,4 +1,5 @@
 using System.Globalization;
+using CopilotChatApp.Models;
 
 namespace CopilotChatApp.Converters;
 
@@ -10,6 +11,28 @@ public class BoolToBubbleColorConverter : IValueConverter
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         => value is true ? UserColor : AssistantColor;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// Bubble background color for a whole ChatMessage: a distinct amber/orange for turns dispatched by
+/// another session (see ChatMessage.IsFromOtherSession) so they're never mistaken for something this
+/// session's own user typed, falling back to the normal user/assistant colors otherwise.
+/// </summary>
+public class MessageToBubbleColorConverter : IValueConverter
+{
+    public static readonly Color OtherSessionColor = Color.FromArgb("#FFE0B2");
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is ChatMessage { IsFromOtherSession: true })
+        {
+            return OtherSessionColor;
+        }
+        return value is ChatMessage { IsUser: true } ? BoolToBubbleColorConverter.UserColor : BoolToBubbleColorConverter.AssistantColor;
+    }
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();

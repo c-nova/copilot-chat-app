@@ -272,7 +272,13 @@ export function createChatServer(): WebSocketServer {
       if (msg.type === 'sessions:history') {
         try {
           const turns = getSessionHistory(msg.sessionId);
-          send(ws, { type: 'sessions:history-result', requestId: msg.requestId, ok: true, sessionId: msg.sessionId, turns });
+          const meta = getSessionMeta(msg.sessionId);
+          const sessionControlTurnIndexes = new Set(meta?.sessionControlTurnIndexes ?? []);
+          const dtoTurns = turns.map((t) => ({
+            ...t,
+            ...(sessionControlTurnIndexes.has(t.turnIndex) ? { fromOtherSession: true } : {}),
+          }));
+          send(ws, { type: 'sessions:history-result', requestId: msg.requestId, ok: true, sessionId: msg.sessionId, turns: dtoTurns });
         } catch (err: any) {
           send(ws, { type: 'sessions:history-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
         }

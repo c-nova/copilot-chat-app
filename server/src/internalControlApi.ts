@@ -1,7 +1,7 @@
 import * as http from 'http';
 import { config } from './config';
 import { getSessionHistory, listSessions } from './sessionHistory';
-import { getSessionMeta } from './sessionMeta';
+import { getSessionMeta, markSessionControlTurn } from './sessionMeta';
 import { ConversationBusyError, runConversationTurn, timingSafeEqualString } from './wsServer';
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -95,7 +95,13 @@ export function createInternalControlApi(): http.Server {
           return;
         }
         const turns = getSessionHistory(sessionId);
-        sendJson(res, 200, { ok: true, sessionId, turns });
+        const meta = getSessionMeta(sessionId);
+        const sessionControlTurnIndexes = new Set(meta?.sessionControlTurnIndexes ?? []);
+        const dtoTurns = turns.map((t) => ({
+          ...t,
+          ...(sessionControlTurnIndexes.has(t.turnIndex) ? { fromOtherSession: true } : {}),
+        }));
+        sendJson(res, 200, { ok: true, sessionId, turns: dtoTurns });
         return;
       }
 
@@ -115,6 +121,16 @@ export function createInternalControlApi(): http.Server {
             requireExistingSession: true,
             rejectIfBusy: true,
           });
+          // Mark the turn we just created so the client can show "message from another session"
+          // instead of it looking like this session's own human user typed it. The turn we just ran
+          // is always the last one in history at this point - nothing else can have appended to
+          // this same conversationId between our runConversationTurn call resolving and this read,
+          // since rejectIfBusy guarantees no other session-control dispatch could have been racing.
+          const turnsAfter = getSessionHistory(sessionId);
+          const lastTurn = turnsAfter[turnsAfter.length - 1];
+          if (lastTurn) {
+            markSessionControlTurn(sessionId, lastTurn.turnIndex);
+          }
           sendJson(res, 200, { ok: true, finalText: result.finalText });
         } catch (err: any) {
           if (err?.name === 'ConversationBusyError' || err instanceof ConversationBusyError) {

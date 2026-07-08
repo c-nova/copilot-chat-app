@@ -347,11 +347,11 @@ public class ChatViewModel : INotifyPropertyChanged, IAsyncDisposable
         {
             if (!string.IsNullOrWhiteSpace(turn.UserMessage))
             {
-                Messages.Add(new ChatMessage { Role = ChatRole.User, Text = turn.UserMessage });
+                Messages.Add(new ChatMessage { Role = ChatRole.User, Text = turn.UserMessage, IsFromOtherSession = turn.FromOtherSession });
             }
             if (!string.IsNullOrWhiteSpace(turn.AssistantResponse))
             {
-                Messages.Add(new ChatMessage { Role = ChatRole.Assistant, Text = turn.AssistantResponse });
+                Messages.Add(new ChatMessage { Role = ChatRole.Assistant, Text = turn.AssistantResponse, IsFromOtherSession = turn.FromOtherSession });
             }
         }
 

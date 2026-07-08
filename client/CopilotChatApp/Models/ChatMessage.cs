@@ -44,6 +44,14 @@ public class ChatMessage : INotifyPropertyChanged
     public bool IsSystem => Role == ChatRole.System;
     public bool IsTool => Role == ChatRole.Tool;
 
+    /// <summary>
+    /// True when this turn was dispatched by another session via the session-control MCP's
+    /// run_turn_on_session tool rather than typed by this session's own human user - drives a
+    /// distinct bubble color + "Message from other Agent" badge so it's never confused for
+    /// something the user themselves sent (see server/src/sessionMeta.ts).
+    /// </summary>
+    public bool IsFromOtherSession { get; set; }
+
     /// <summary>Full tool call arguments/status text shown when a tool-activity bubble is tapped.</summary>
     public string? ToolDetail { get; set; }
 
