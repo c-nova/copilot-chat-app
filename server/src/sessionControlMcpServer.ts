@@ -112,7 +112,7 @@ server.registerTool(
   'run_turn_on_session',
   {
     title: 'Send a message to another session',
-    description: `Sends a message to another existing session on this server and waits for its full reply, as if you had typed it there yourself. The target session must already exist (see list_sessions) - this can't create a brand-new one. ${CROSS_SESSION_GUIDANCE}`,
+    description: `Sends a message to another existing session on this server and waits for its full reply, as if you had typed it there yourself. The target session must already exist (see list_sessions) - this can't create a brand-new one. Fails immediately (rather than silently waiting) if that session currently has a turn actively running, e.g. a human is chatting with it right now via the app - if that happens, tell the user it's busy and to try again shortly, rather than retrying in a loop. ${CROSS_SESSION_GUIDANCE}`,
     inputSchema: {
       sessionId: z.string().describe('The target session id, from list_sessions'),
       message: z.string().describe('The message to send to that session'),

@@ -2,7 +2,7 @@ import * as http from 'http';
 import { config } from './config';
 import { getSessionHistory, listSessions } from './sessionHistory';
 import { getSessionMeta } from './sessionMeta';
-import { runConversationTurn, timingSafeEqualString } from './wsServer';
+import { ConversationBusyError, runConversationTurn, timingSafeEqualString } from './wsServer';
 
 const MAX_BODY_BYTES = 1_000_000;
 
@@ -107,8 +107,22 @@ export function createInternalControlApi(): http.Server {
           sendJson(res, 400, { ok: false, error: 'sessionId and message are required' });
           return;
         }
-        const result = await runConversationTurn(sessionId, message, { requireExistingSession: true });
-        sendJson(res, 200, { ok: true, finalText: result.finalText });
+        try {
+          // rejectIfBusy: true - a session-control dispatch must never silently queue behind a
+          // turn a human is actively running via the app (see wsServer.ts design notes); fail fast
+          // with a clear 409 instead so the calling session can tell its user to try again later.
+          const result = await runConversationTurn(sessionId, message, {
+            requireExistingSession: true,
+            rejectIfBusy: true,
+          });
+          sendJson(res, 200, { ok: true, finalText: result.finalText });
+        } catch (err: any) {
+          if (err?.name === 'ConversationBusyError' || err instanceof ConversationBusyError) {
+            sendJson(res, 409, { ok: false, error: err.message });
+            return;
+          }
+          throw err;
+        }
         return;
       }
 

@@ -20,7 +20,7 @@ jest.mock('../src/sessionMeta', () => ({
 
 import { config } from '../src/config';
 import { createInternalControlApi } from '../src/internalControlApi';
-import { runConversationTurn } from '../src/wsServer';
+import { ConversationBusyError, runConversationTurn } from '../src/wsServer';
 
 const mockedRunConversationTurn = runConversationTurn as jest.Mock;
 
@@ -100,12 +100,22 @@ describe('internal control API', () => {
     expect(res.json.turns).toHaveLength(1);
   });
 
-  it('runs a turn via runConversationTurn (requiring an existing session) and returns finalText', async () => {
+  it('runs a turn via runConversationTurn (requiring an existing session, rejecting if busy) and returns finalText', async () => {
     mockedRunConversationTurn.mockResolvedValue({ finalText: 'done', exitCode: 0, sessionId: 's1' });
     const res = await request('POST', '/internal/run-turn', { sessionId: 's1', message: 'hi' });
     expect(res.status).toBe(200);
     expect(res.json.finalText).toBe('done');
-    expect(mockedRunConversationTurn).toHaveBeenCalledWith('s1', 'hi', { requireExistingSession: true });
+    expect(mockedRunConversationTurn).toHaveBeenCalledWith('s1', 'hi', {
+      requireExistingSession: true,
+      rejectIfBusy: true,
+    });
+  });
+
+  it('returns 409 when runConversationTurn rejects with ConversationBusyError', async () => {
+    mockedRunConversationTurn.mockRejectedValue(new ConversationBusyError('s1'));
+    const res = await request('POST', '/internal/run-turn', { sessionId: 's1', message: 'hi' });
+    expect(res.status).toBe(409);
+    expect(res.json.error).toMatch(/currently busy/);
   });
 
   it('returns 400 when sessionId/message are missing from run-turn', async () => {

@@ -59,6 +59,24 @@ function isAuthorized(req: IncomingMessage): boolean {
 // process against a session a human is already actively chatting with via the app.
 const conversationSessions = new Map<string, { sessionId: string; cwd: string }>();
 const conversationLocks = new Map<string, Promise<void>>();
+// conversationIds with a turn *actually running right now* (as opposed to merely queued behind
+// one via conversationLocks). Used only to power the rejectIfBusy option below - the WebSocket
+// chat handler never sets that option, so a human's own back-to-back messages still queue and
+// wait exactly as before; only the internal control API opts into failing fast instead.
+const activeConversationTurns = new Set<string>();
+
+/**
+ * Thrown by runConversationTurn when `rejectIfBusy` is set and the target conversation already has
+ * a turn actively running. Distinguished by `name` (rather than relying on `instanceof`, which can
+ * be unreliable across jest.mock module boundaries) so callers like internalControlApi.ts can map
+ * it to a specific HTTP status instead of a generic 500.
+ */
+export class ConversationBusyError extends Error {
+  constructor(conversationId: string) {
+    super(`Session ${conversationId} is currently busy with an in-progress turn - try again in a moment.`);
+    this.name = 'ConversationBusyError';
+  }
+}
 
 export interface RunConversationTurnOptions {
   attachments?: AttachmentInput[];
@@ -70,6 +88,17 @@ export interface RunConversationTurnOptions {
    * ever dispatch work to a session that already exists, never spin up an arbitrary new one by id.
    */
   requireExistingSession?: boolean;
+  /**
+   * When true, throws ConversationBusyError immediately instead of queueing behind an
+   * already-in-progress turn for this conversationId. Used only by the internal control API
+   * (session-control MCP's run_turn_on_session): without this, a cross-session dispatch would
+   * silently wait for a human's in-flight turn to finish and then run right after it with no
+   * warning to either side - safe from corruption (conversationLocks still serializes), but a
+   * surprising, silent interjection into a conversation a human is actively having. The WebSocket
+   * chat handler never sets this, so a human's own client queueing multiple sends still works
+   * exactly as before.
+   */
+  rejectIfBusy?: boolean;
   onDelta?: DeltaHandler;
   onToolEvent?: ToolEventHandler;
 }
@@ -85,6 +114,9 @@ export function runConversationTurn(
   text: string,
   options: RunConversationTurnOptions = {},
 ): Promise<TurnResult> {
+  if (options.rejectIfBusy && activeConversationTurns.has(conversationId)) {
+    return Promise.reject(new ConversationBusyError(conversationId));
+  }
   const prior = conversationLocks.get(conversationId) ?? Promise.resolve();
   const turn = prior.catch(() => undefined).then(() => runConversationTurnCore(conversationId, text, options));
   // The lock map only needs to know "when is the prior turn settled", never why - a rejected turn
@@ -141,14 +173,19 @@ async function runConversationTurnCore(
     conversationSessions.set(conversationId, state);
   }
 
-  return runCopilotTurn(
-    state.sessionId,
-    text,
-    options.onDelta ?? (() => {}),
-    options.onToolEvent ?? (() => {}),
-    options.attachments,
-    state.cwd,
-  );
+  activeConversationTurns.add(conversationId);
+  try {
+    return await runCopilotTurn(
+      state.sessionId,
+      text,
+      options.onDelta ?? (() => {}),
+      options.onToolEvent ?? (() => {}),
+      options.attachments,
+      state.cwd,
+    );
+  } finally {
+    activeConversationTurns.delete(conversationId);
+  }
 }
 
 export function createChatServer(): WebSocketServer {
