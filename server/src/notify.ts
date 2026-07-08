@@ -1,6 +1,39 @@
 import { config } from './config';
 
 /**
+ * Strips common Markdown formatting down to plain text for display in a notification banner,
+ * which can't render Markdown - without this, the raw formatting characters (**, `, #, etc.)
+ * show up literally in the notification. This is a best-effort regex-based pass, not a full
+ * Markdown parser: good enough for a short preview, not meant to handle every edge case.
+ */
+function stripMarkdown(markdown: string): string {
+  return markdown
+    // fenced code blocks: drop the ``` fences but keep the code content
+    .replace(/```[\s\S]*?```/g, (block) => block.replace(/```/g, ''))
+    // inline code: `code` -> code
+    .replace(/`([^`]+)`/g, '$1')
+    // images: ![alt](url) -> alt
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    // links: [text](url) -> text
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    // bold+italic / bold / italic: ***x***, **x**, *x*, ___x___, __x__, _x_ -> x
+    .replace(/(\*\*\*|___)(.+?)\1/g, '$2')
+    .replace(/(\*\*|__)(.+?)\1/g, '$2')
+    .replace(/(\*|_)(.+?)\1/g, '$2')
+    // strikethrough: ~~x~~ -> x
+    .replace(/~~(.+?)~~/g, '$1')
+    // headings: leading #'s
+    .replace(/^#{1,6}\s+/gm, '')
+    // blockquotes: leading >
+    .replace(/^>\s?/gm, '')
+    // horizontal rules
+    .replace(/^ {0,3}([-*_])( *\1){2,} *$/gm, '')
+    // list markers (bullet and numbered)
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '');
+}
+
+/**
  * EXPERIMENTAL: best-effort push notification via ntfy (https://ntfy.sh, or a self-hosted
  * instance) when a chat turn finishes - lets you know Copilot replied without needing to keep the
  * client app open or in the foreground. This is entirely optional and off by default: if
@@ -22,7 +55,7 @@ export async function notifyReplyReady(text: string): Promise<void> {
   if (!config.ntfyTopic) return;
 
   const url = `${config.ntfyServer}/${encodeURIComponent(config.ntfyTopic)}`;
-  const preview = text.trim().replace(/\s+/g, ' ').slice(0, 400) || '(empty reply)';
+  const preview = stripMarkdown(text).trim().replace(/\s+/g, ' ').slice(0, 400) || '(empty reply)';
 
   try {
     const res = await fetch(url, {

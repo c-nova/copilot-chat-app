@@ -81,6 +81,28 @@ describe('notifyReplyReady', () => {
     expect(options.body).toBe('(empty reply)');
   });
 
+  it('strips common Markdown formatting so notifications show plain text', async () => {
+    process.env.NTFY_TOPIC = 'my-topic';
+    jest.resetModules();
+    const { notifyReplyReady } = require('../src/notify');
+
+    await notifyReplyReady(
+      '# Heading\n' +
+        'This is **bold**, *italic*, ~~strikethrough~~, and `inline code`.\n' +
+        '- one\n- two\n' +
+        '1. first\n2. second\n' +
+        '> a quote\n' +
+        'See [the docs](https://example.com/docs) and ![alt text](https://example.com/img.png).\n' +
+        '```\ncode block\n```'
+    );
+
+    const [, options] = fetchMock.mock.calls[0];
+    expect(options.body).toBe(
+      'Heading This is bold, italic, strikethrough, and inline code. one two first second a quote ' +
+        'See the docs and alt text. code block'
+    );
+  });
+
   it('swallows a fetch rejection instead of throwing', async () => {
     process.env.NTFY_TOPIC = 'my-topic';
     jest.resetModules();
