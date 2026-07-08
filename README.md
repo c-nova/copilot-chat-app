@@ -119,8 +119,8 @@ to start a fresh Copilot CLI session (it'll ask which server, if you've configur
   server's configured `BROWSE_ROOTS`) or clone a git repo fresh, instead of always using the default workspace.
 - **In-app MCP server management**: add/remove `stdio` or `http` MCP servers from the **Manage MCP Servers**
   screen in Settings — no need to SSH into the server machine to run `copilot mcp add`.
-- **Biometric/passcode lock**: on Mac Catalyst and Windows, the app can require Face ID / Touch ID / Windows
-  Hello (or device passcode) to unlock after being backgrounded, protecting the saved Auth Token(s).
+- **Biometric/passcode lock**: on iOS/iPadOS, Mac Catalyst, and Windows, the app can require Face ID / Touch ID /
+  Windows Hello (or device passcode) to unlock after being backgrounded, protecting the saved Auth Token(s).
 - Adjustable chat font size, from the Settings page - applies immediately, even to already-visible messages.
 - **(Experimental) Push notification when Copilot replies**: set `NTFY_TOPIC` in `server/.env` to get a push
   notification via [ntfy](https://ntfy.sh) whenever a chat turn finishes - useful since real Apple/Google push
@@ -292,7 +292,7 @@ dotnet build -f net10.0-ios                   # iOS(Xcode+署名設定入りのM
   `BROWSE_ROOTS` 配下の特定フォルダを起点にしたり、Gitリポジトリを新規cloneして会話を始められます。
 - **アプリ内MCPサーバー管理**: Settingsの **Manage MCP Servers** 画面から `stdio`/`http` のMCPサーバーを
   追加・削除できます — サーバーマシンにSSHして `copilot mcp add` を叩く必要はありません
-- **生体認証/パスコードロック**: Mac CatalystとWindowsでは、バックグラウンドから復帰する際に
+- **生体認証/パスコードロック**: iOS/iPadOS・Mac Catalyst・Windowsでは、バックグラウンドから復帰する際に
   Face ID / Touch ID / Windows Hello(またはデバイスのパスコード)でのロック解除を要求し、
   保存済みのAuth Token(複数サーバー分)を保護できます
 - Settings画面からチャットのフォントサイズを調整可能(既に表示中のメッセージにも即座に反映されます)

@@ -46,5 +46,7 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Copilot Chat connects to your Copilot chat server on your local network.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Copilot Chat uses Face ID to unlock access to your saved server connection.</string>
 </dict>
 </plist>
