@@ -220,9 +220,17 @@ export interface SessionSummaryDto {
   busy?: boolean;
   /** PBI-027: true if this session has ever been opened as an Orchestrator "main" session - HomePage uses this to route straight back into the Orchestrator screen instead of the plain chat screen when resuming it. */
   orchestratorMain?: boolean;
-  /** PBI-027: true if this session currently has 1+ child sessions recorded under it (see sessionMeta.ts's getChildSessionIds) - drives a "👑 親" badge on the Home screen's session card. */
-  isOrchestratorParent?: boolean;
-  /** PBI-027: true if this session is recorded as a child of some other session (see sessionMeta.ts's parentSessionId) - drives a "🔗 子" badge on the Home screen's session card. */
+  /**
+   * PBI-027: this session's own parent session id, if it was Spawned as a child (see
+   * sessionMeta.ts's parentSessionId) - absent for ordinary top-level sessions. Deliberately the
+   * raw id rather than just a boolean: the client aggregates sessions across *every* configured
+   * server profile (see HomePage), so it can correctly compute "does this session have any
+   * children, even on a different server" by cross-referencing every session's parentSessionId
+   * against every other session's id - something a single server can never determine on its own
+   * (it only ever sees children recorded in its own sessionMeta.json).
+   */
+  parentSessionId?: string;
+  /** PBI-027: true if this session is recorded as a child of some other session - equivalent to `parentSessionId` being set, exposed as a convenience boolean for the "🔗 子" badge on the Home screen's session card (this one IS always correct even cross-server, since a child's own parentSessionId lives alongside it on whichever server it actually runs on). */
   isOrchestratorChild?: boolean;
 }
 

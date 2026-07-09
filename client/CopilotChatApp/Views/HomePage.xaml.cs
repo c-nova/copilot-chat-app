@@ -108,6 +108,7 @@ public partial class HomePage : ContentPage
                 var sessions = await finished; // already completed; FetchProfileSessionsAsync swallows its own errors
                 _allSessions.AddRange(sessions);
                 _allSessions.Sort((a, b) => string.CompareOrdinal(b.UpdatedAt, a.UpdatedAt));
+                ApplyOrchestratorParentFlags();
                 ApplyArchiveFilter();
                 RefreshServerInfoSummary(profiles);
             }
@@ -363,6 +364,26 @@ public partial class HomePage : ContentPage
     {
         Sessions.Clear();
         foreach (var s in _allSessions.Where(PassesFilters)) Sessions.Add(s);
+    }
+
+    /// <summary>
+    /// Computes SessionSummary.IsOrchestratorParent (PBI-027) for every session currently known in
+    /// <see cref="_allSessions"/> - by design NOT sent by the server (see SessionSummaryDto's doc
+    /// comment in protocol.ts): a single server can only ever see children recorded in its own
+    /// sessionMeta.json, silently missing any child spawned on a *different* configured profile
+    /// (PBI-026's cross-server spawn). This screen already aggregates every profile's sessions into
+    /// one list, so it can correctly answer "does this session have children anywhere" by
+    /// cross-referencing every session's ParentSessionId against every other session's Id. Called
+    /// after every incremental merge in RefreshAsync, so the badge is as complete as whatever's been
+    /// fetched so far and fully correct once every profile has responded.
+    /// </summary>
+    void ApplyOrchestratorParentFlags()
+    {
+        var parentIds = new HashSet<string>(_allSessions.Select(s => s.ParentSessionId).Where(id => !string.IsNullOrEmpty(id))!);
+        foreach (var s in _allSessions)
+        {
+            s.IsOrchestratorParent = parentIds.Contains(s.Id);
+        }
     }
 
     void OnShowArchivedToggled(object? sender, ToggledEventArgs e)
