@@ -22,11 +22,16 @@ export interface SessionTurn {
 
 /**
  * Path to the GitHub Copilot CLI's local session store (SQLite). Same file used by the CLI itself
- * to power `--resume`/`--continue` and cross-session search - we just read it (read-only) to list
- * and replay past conversations that happened in our configured workspace directory.
+ * to power `--resume`/`--continue` and cross-session search - we just read it (read-only, except
+ * for deleteSessionHard's deliberate read-write open) to list and replay past conversations that
+ * happened in our configured workspace directory.
+ *
+ * Overridable via COPILOT_SESSION_STORE_DB (same rationale/pattern as sessionMeta.ts's
+ * SESSION_META_FILE) so tests can point this at a disposable temp file instead of touching a real
+ * `~/.copilot/session-store.db` on the machine running them.
  */
 function dbPath(): string {
-  return path.join(os.homedir(), '.copilot', 'session-store.db');
+  return process.env.COPILOT_SESSION_STORE_DB || path.join(os.homedir(), '.copilot', 'session-store.db');
 }
 
 /** Opens the CLI's session-store.db read-only. Returns null if the file doesn't exist yet (e.g. brand-new machine). */
@@ -94,6 +99,57 @@ export function getSessionCwd(sessionId: string): string | null {
   } catch (err) {
     console.warn('[sessionHistory] getSessionCwd failed:', (err as Error)?.message);
     return null;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Permanently deletes a session and everything referencing it from the CLI's own
+ * session-store.db (PBI-021's "hard delete" - irreversible, unlike sessionMeta.setSessionArchived's
+ * reversible sidecar-only "soft delete"). Opens the db read-write, unlike every other function in
+ * this file, purely for this one operation - callers are responsible for confirming with the user
+ * first and for refusing this while the session has an in-progress turn (see wsServer.ts's
+ * activeConversationTurns).
+ *
+ * The CLI's schema has several tables with a `session_id` FOREIGN KEY REFERENCES sessions(id) -
+ * turns, checkpoints, session_files, session_refs, forge_trajectory_events, assistant_usage_events
+ * (as of this schema; a real `~/.copilot/session-store.db` was inspected directly to enumerate
+ * these, since this app's own sessionHistory.ts only ever read a subset of columns/tables). All of
+ * them must be deleted before the sessions row itself, or SQLite's FK enforcement rejects the
+ * DELETE.
+ *
+ * Deliberately does NOT touch the FTS5 `search_index` virtual table: verified live against a real
+ * session-store.db that Node's built-in `node:sqlite` module errors with "no such module: fts5" on
+ * any query against it (that SQLite build doesn't include the FTS5 extension, unlike whatever
+ * SQLite library the CLI itself links against to have created that table). search_index isn't
+ * FK-enforced, so leaving a hard-deleted session's rows behind there can't break anything - worst
+ * case is the CLI's own full-text search still surfaces content from a session this app no longer
+ * lists, a cosmetic gap versus refusing to hard-delete at all.
+ */
+export function deleteSessionHard(sessionId: string): void {
+  const db = new DatabaseSync(dbPath());
+  try {
+    db.exec('BEGIN');
+    for (const table of [
+      'forge_trajectory_events',
+      'assistant_usage_events',
+      'session_refs',
+      'session_files',
+      'checkpoints',
+      'turns',
+    ]) {
+      db.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(sessionId);
+    }
+    db.prepare(`DELETE FROM sessions WHERE id = ?`).run(sessionId);
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // ignore - the original error below is what matters
+    }
+    throw err;
   } finally {
     db.close();
   }

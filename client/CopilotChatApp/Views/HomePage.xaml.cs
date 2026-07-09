@@ -439,14 +439,19 @@ public partial class HomePage : ContentPage
     /// SetSessionLabelAsync/SetSessionArchivedAsync just persist to the server's sidecar metadata
     /// store - a full RefreshAsync afterwards is the simplest way to reflect the change, since
     /// SessionSummary is a plain POCO with no change notification of its own to patch the existing
-    /// ObservableCollection entry in place.
+    /// ObservableCollection entry in place. "完全に削除" (PBI-021's hard delete) is the one
+    /// destructive option here - passed as DisplayActionSheet's `destruction` button so the OS
+    /// styles it distinctly (e.g. red text on iOS/Mac), and gated behind its own confirmation
+    /// dialog since, unlike archive, it's irreversible (removes the session from the CLI's own
+    /// session-store.db, not just this app's sidecar).
     /// </summary>
     async void OnCardMenuTapped(object? sender, TappedEventArgs e)
     {
         if (e.Parameter is not SessionSummary session) return;
 
+        const string deleteActionText = "完全に削除...";
         var archiveActionText = session.Archived ? "アーカイブ解除" : "アーカイブ";
-        var choice = await DisplayActionSheet(session.DisplayTitle, "キャンセル", null, "ラベルを編集", archiveActionText);
+        var choice = await DisplayActionSheet(session.DisplayTitle, "キャンセル", deleteActionText, "ラベルを編集", archiveActionText);
 
         try
         {
@@ -466,6 +471,18 @@ public partial class HomePage : ContentPage
             else if (choice == archiveActionText)
             {
                 await client.SetSessionArchivedAsync(session.Id, !session.Archived);
+                await RefreshAsync();
+            }
+            else if (choice == deleteActionText)
+            {
+                var confirmed = await DisplayAlert(
+                    "完全に削除しますか?",
+                    "このセッションと会話履歴を、Copilot CLI自体の履歴からも完全に削除します。この操作は元に戻せません。",
+                    "削除する",
+                    "キャンセル");
+                if (!confirmed) return;
+
+                await client.DeleteSessionAsync(session.Id, "hard");
                 await RefreshAsync();
             }
         }

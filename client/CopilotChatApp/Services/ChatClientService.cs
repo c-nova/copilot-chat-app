@@ -21,6 +21,7 @@ public class ChatClientService : IAsyncDisposable
     readonly Dictionary<string, TaskCompletionSource<FsGitCloneResult>> _pendingFsGitCloneRequests = new();
     readonly Dictionary<string, TaskCompletionSource<ServerInfoResult>> _pendingServerInfoRequests = new();
     readonly Dictionary<string, TaskCompletionSource<SessionsUpdateMetaResult>> _pendingSessionsUpdateMetaRequests = new();
+    readonly Dictionary<string, TaskCompletionSource<SessionsDeleteResult>> _pendingSessionsDeleteRequests = new();
 
     public event Action<string>? OnDelta;
     public event Action<string>? OnFinal;
@@ -506,6 +507,46 @@ public class ChatClientService : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Deletes a session (PBI-021). mode "soft" is equivalent to SetSessionArchivedAsync(id, true) -
+    /// reversible, sidecar-only. mode "hard" permanently removes the session and its turns from the
+    /// CLI's own session-store.db - irreversible. Callers must confirm with the user before calling
+    /// this with "hard"; the server also refuses a hard delete while the session has an in-progress
+    /// turn (see wsServer.ts) and this surfaces as the thrown exception's message.
+    /// </summary>
+    public async Task DeleteSessionAsync(string sessionId, string mode, CancellationToken ct = default)
+    {
+        if (_socket is null || _socket.State != WebSocketState.Open)
+        {
+            throw new InvalidOperationException("Not connected to server.");
+        }
+
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<SessionsDeleteResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingSessionsDeleteRequests[requestId] = tcs;
+        try
+        {
+            var payload = JsonSerializer.Serialize(new OutgoingSessionsDeleteMessage
+            {
+                RequestId = requestId,
+                SessionId = sessionId,
+                Mode = mode,
+            });
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
+
+            var result = await WaitWithTimeoutAsync(tcs, ct);
+            if (!result.Ok)
+            {
+                throw new InvalidOperationException(result.Error ?? "Failed to delete session");
+            }
+        }
+        finally
+        {
+            _pendingSessionsDeleteRequests.Remove(requestId);
+        }
+    }
+
     async Task ReceiveLoopAsync(ClientWebSocket socket, CancellationToken ct)
     {
         var buffer = new byte[8192];
@@ -617,6 +658,12 @@ public class ChatClientService : IAsyncDisposable
                 if (msg.RequestId is not null && _pendingSessionsUpdateMetaRequests.Remove(msg.RequestId, out var updateMetaTcs))
                 {
                     updateMetaTcs.TrySetResult(new SessionsUpdateMetaResult(msg.Ok ?? false, msg.Error));
+                }
+                break;
+            case "sessions:delete-result":
+                if (msg.RequestId is not null && _pendingSessionsDeleteRequests.Remove(msg.RequestId, out var deleteTcs))
+                {
+                    deleteTcs.TrySetResult(new SessionsDeleteResult(msg.Ok ?? false, msg.Error));
                 }
                 break;
         }
@@ -773,6 +820,14 @@ public class ChatClientService : IAsyncDisposable
         [JsonPropertyName("archived")] public bool Archived { get; set; }
     }
 
+    class OutgoingSessionsDeleteMessage
+    {
+        [JsonPropertyName("type")] public string Type { get; set; } = "sessions:delete";
+        [JsonPropertyName("requestId")] public string RequestId { get; set; } = string.Empty;
+        [JsonPropertyName("sessionId")] public string SessionId { get; set; } = string.Empty;
+        [JsonPropertyName("mode")] public string Mode { get; set; } = "soft";
+    }
+
     record McpResult(bool Ok, string? Error, List<McpServerSummary>? Servers, McpServerSummary? Server);
     record SessionsListResult(bool Ok, string? Error, List<SessionSummary>? Sessions);
     record SessionsHistoryResult(bool Ok, string? Error, List<SessionTurn>? Turns);
@@ -780,6 +835,7 @@ public class ChatClientService : IAsyncDisposable
     record FsGitCloneResult(bool Ok, string? Error, string? Path);
     record ServerInfoResult(bool Ok, string? Error, ServerInfo? Info);
     record SessionsUpdateMetaResult(bool Ok, string? Error);
+    record SessionsDeleteResult(bool Ok, string? Error);
 }
 
 public record ToolEventArgs(string Status, string Name, string? Summary, string? Detail, bool? Success);

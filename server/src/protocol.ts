@@ -97,6 +97,19 @@ export interface ClientSessionsUpdateMetaMessage {
   archived?: boolean;
 }
 
+/**
+ * Deletes a session (PBI-021). 'soft' just sets archived:true (sidecar-only, reversible - same
+ * effect as sessions:update-meta's archived flag, offered here too as an explicit "delete" verb
+ * for the client's UI). 'hard' permanently removes the session and its turns from the CLI's own
+ * session-store.db - irreversible; the client must confirm with the user before sending this.
+ */
+export interface ClientSessionsDeleteMessage {
+  type: 'sessions:delete';
+  requestId: string;
+  sessionId: string;
+  mode: 'soft' | 'hard';
+}
+
 export type ClientMessage =
   | ClientChatMessage
   | ClientMcpListMessage
@@ -108,7 +121,8 @@ export type ClientMessage =
   | ClientFsListDirMessage
   | ClientFsGitCloneMessage
   | ClientServerInfoMessage
-  | ClientSessionsUpdateMetaMessage;
+  | ClientSessionsUpdateMetaMessage
+  | ClientSessionsDeleteMessage;
 
 /** Messages sent from server -> client over the WebSocket. */
 export interface ServerDeltaMessage {
@@ -259,6 +273,13 @@ export interface ServerSessionsUpdateMetaResultMessage {
   error?: string;
 }
 
+export interface ServerSessionsDeleteResultMessage {
+  type: 'sessions:delete-result';
+  requestId: string;
+  ok: boolean;
+  error?: string;
+}
+
 export type ServerMessage =
   | ServerDeltaMessage
   | ServerFinalMessage
@@ -271,4 +292,5 @@ export type ServerMessage =
   | ServerFsListDirResultMessage
   | ServerFsGitCloneResultMessage
   | ServerInfoResultMessage
-  | ServerSessionsUpdateMetaResultMessage;
+  | ServerSessionsUpdateMetaResultMessage
+  | ServerSessionsDeleteResultMessage;

@@ -9,8 +9,8 @@ import { addMcpServer, listMcpServers, removeMcpServer } from './mcpManager';
 import { isPathAllowed } from './pathAccess';
 import { notifyReplyReady } from './notify';
 import { ClientMessage, ServerMessage } from './protocol';
-import { getSessionCwd, getSessionHistory, listSessions, searchSessions } from './sessionHistory';
-import { getSessionMeta, setSessionArchived, setSessionLabel } from './sessionMeta';
+import { deleteSessionHard, getSessionCwd, getSessionHistory, listSessions, searchSessions } from './sessionHistory';
+import { deleteSessionMeta, getSessionMeta, setSessionArchived, setSessionLabel } from './sessionMeta';
 import { getServerInfo } from './serverInfo';
 
 function send(ws: WebSocket, msg: ServerMessage) {
@@ -350,6 +350,27 @@ export function createChatServer(): WebSocketServer {
           });
         } catch (err: any) {
           send(ws, { type: 'sessions:update-meta-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
+        }
+        return;
+      }
+
+      if (msg.type === 'sessions:delete') {
+        try {
+          if (msg.mode === 'hard') {
+            // Refuse while the Copilot CLI process for this session is actively mid-turn (see
+            // activeConversationTurns above) - deleting its rows out from under it while it's
+            // reading/writing the same session-store.db is exactly the accident PBI-021 calls out.
+            if (activeConversationTurns.has(msg.sessionId)) {
+              throw new Error('Cannot hard-delete a session with an in-progress turn - wait for it to finish and try again.');
+            }
+            deleteSessionHard(msg.sessionId);
+            deleteSessionMeta(msg.sessionId);
+          } else {
+            setSessionArchived(msg.sessionId, true);
+          }
+          send(ws, { type: 'sessions:delete-result', requestId: msg.requestId, ok: true });
+        } catch (err: any) {
+          send(ws, { type: 'sessions:delete-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
         }
         return;
       }
