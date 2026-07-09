@@ -28,6 +28,13 @@ export interface SessionMetaEntry {
    * session-store.db has no concept of.
    */
   parentSessionId?: string;
+  /**
+   * PBI-027: true if this session has ever been opened as the Orchestrator screen's "main" session
+   * (either resumed there or started brand-new via "Orchestratorとして開始") - lets the client
+   * remember to re-open it in the Orchestrator screen next time, rather than the plain chat screen,
+   * without the user having to re-pick every time. Sidecar-only, same rationale as the fields above.
+   */
+  orchestratorMain?: boolean;
 }
 
 type SessionMetaStore = Record<string, SessionMetaEntry>;
@@ -124,4 +131,16 @@ export function getChildSessionIds(parentSessionId: string): string[] {
   return Object.entries(store)
     .filter(([, meta]) => meta.parentSessionId === parentSessionId)
     .map(([sessionId]) => sessionId);
+}
+
+/**
+ * Marks `sessionId` as an Orchestrator "main" session (PBI-027) - called once whenever the
+ * Orchestrator screen opens for it (both the brand-new and resumed-session paths), idempotent.
+ */
+export function setSessionOrchestratorMain(sessionId: string): void {
+  const store = readStore();
+  const existing = store[sessionId];
+  if (existing?.orchestratorMain) return; // already marked - avoid a needless write on every open
+  store[sessionId] = { ...existing, updatedAt: new Date().toISOString(), orchestratorMain: true };
+  writeStore(store);
 }

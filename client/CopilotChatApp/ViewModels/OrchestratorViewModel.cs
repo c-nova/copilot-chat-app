@@ -184,6 +184,23 @@ public class OrchestratorViewModel : IAsyncDisposable
         }, ct);
     }
 
+    /// <summary>Marks the main session as an Orchestrator "main" session (PBI-027), idempotent - call
+    /// once from the page's OnAppearing (after the main chat's own connect) so HomePage knows to
+    /// reopen this session directly into the Orchestrator screen next time. Best-effort: swallows
+    /// failures (e.g. offline right at open) since it's just a convenience annotation, not something
+    /// that should block using the screen.</summary>
+    public async Task MarkAsOrchestratorMainAsync()
+    {
+        try
+        {
+            await _chatClient.MarkSessionAsOrchestratorMainAsync(_mainSessionId);
+        }
+        catch
+        {
+            // best-effort only - see remarks above
+        }
+    }
+
     /// <summary>Fetches the current child list + busy flags from *every* configured server profile
     /// (PBI-026 - children aren't limited to the main session's own machine), adds/removes panes to
     /// match, and re-fetches full history only for children that actually changed since last time

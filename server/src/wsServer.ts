@@ -10,8 +10,27 @@ import { isPathAllowed } from './pathAccess';
 import { notifyReplyReady } from './notify';
 import { ClientMessage, ServerMessage } from './protocol';
 import { deleteSessionHard, getSessionCwd, getSessionHistory, getSessionSummary, listSessions, searchSessions } from './sessionHistory';
-import { deleteSessionMeta, getChildSessionIds, getSessionMeta, markSessionControlTurn, setSessionArchived, setSessionLabel, setSessionParent } from './sessionMeta';
+import { deleteSessionMeta, getAllSessionMeta, getChildSessionIds, getSessionMeta, markSessionControlTurn, setSessionArchived, setSessionLabel, setSessionOrchestratorMain, setSessionParent } from './sessionMeta';
 import { getServerInfo } from './serverInfo';
+
+/**
+ * PBI-027: computes the two "is this session part of an Orchestrator parent/child relationship"
+ * badges shown on HomePage's session cards, from a single already-loaded sessionMeta snapshot -
+ * reads the sidecar store once per request (via getAllSessionMeta) rather than once per session
+ * (which sessions:list/search/children would otherwise do, since getSessionMeta/getChildSessionIds
+ * each read the whole file on their own).
+ */
+function buildOrchestratorFlags(allMeta: ReturnType<typeof getAllSessionMeta>) {
+  const parentIdsWithChildren = new Set(
+    Object.values(allMeta)
+      .map((m) => m.parentSessionId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  return (sessionId: string) => ({
+    isOrchestratorChild: Boolean(allMeta[sessionId]?.parentSessionId),
+    isOrchestratorParent: parentIdsWithChildren.has(sessionId),
+  });
+}
 
 function send(ws: WebSocket, msg: ServerMessage) {
   if (ws.readyState === WebSocket.OPEN) {
@@ -311,9 +330,18 @@ export function createChatServer(): WebSocketServer {
 
       if (msg.type === 'sessions:list') {
         try {
+          const allMeta = getAllSessionMeta();
+          const orchestratorFlags = buildOrchestratorFlags(allMeta);
           const sessions = listSessions([...config.browseRoots, config.workDir]).map((s) => {
-            const meta = getSessionMeta(s.id);
-            return { ...s, label: meta?.label, archived: meta?.archived ?? false, busy: activeConversationTurns.has(s.id) };
+            const meta = allMeta[s.id];
+            return {
+              ...s,
+              label: meta?.label,
+              archived: meta?.archived ?? false,
+              busy: activeConversationTurns.has(s.id),
+              orchestratorMain: meta?.orchestratorMain ?? false,
+              ...orchestratorFlags(s.id),
+            };
           });
           send(ws, { type: 'sessions:list-result', requestId: msg.requestId, ok: true, sessions });
         } catch (err: any) {
@@ -340,9 +368,18 @@ export function createChatServer(): WebSocketServer {
 
       if (msg.type === 'sessions:search') {
         try {
+          const allMeta = getAllSessionMeta();
+          const orchestratorFlags = buildOrchestratorFlags(allMeta);
           const sessions = searchSessions(msg.query, [...config.browseRoots, config.workDir]).map((s) => {
-            const meta = getSessionMeta(s.id);
-            return { ...s, label: meta?.label, archived: meta?.archived ?? false, busy: activeConversationTurns.has(s.id) };
+            const meta = allMeta[s.id];
+            return {
+              ...s,
+              label: meta?.label,
+              archived: meta?.archived ?? false,
+              busy: activeConversationTurns.has(s.id),
+              orchestratorMain: meta?.orchestratorMain ?? false,
+              ...orchestratorFlags(s.id),
+            };
           });
           send(ws, { type: 'sessions:search-result', requestId: msg.requestId, ok: true, sessions });
         } catch (err: any) {
@@ -394,12 +431,17 @@ export function createChatServer(): WebSocketServer {
           let meta;
           if (msg.label !== undefined) meta = setSessionLabel(msg.sessionId, msg.label);
           if (msg.archived !== undefined) meta = setSessionArchived(msg.sessionId, msg.archived);
+          if (msg.orchestratorMain) {
+            setSessionOrchestratorMain(msg.sessionId);
+            meta = getSessionMeta(msg.sessionId);
+          }
           send(ws, {
             type: 'sessions:update-meta-result',
             requestId: msg.requestId,
             ok: true,
             label: meta?.label,
             archived: meta?.archived,
+            orchestratorMain: meta?.orchestratorMain,
           });
         } catch (err: any) {
           send(ws, { type: 'sessions:update-meta-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
@@ -451,12 +493,21 @@ export function createChatServer(): WebSocketServer {
 
       if (msg.type === 'sessions:children') {
         try {
+          const allMeta = getAllSessionMeta();
+          const orchestratorFlags = buildOrchestratorFlags(allMeta);
           const sessions = getChildSessionIds(msg.parentSessionId)
             .map((id) => {
               const summary = getSessionSummary(id);
               if (!summary) return null;
-              const meta = getSessionMeta(id);
-              return { ...summary, label: meta?.label, archived: meta?.archived ?? false, busy: activeConversationTurns.has(id) };
+              const meta = allMeta[id];
+              return {
+                ...summary,
+                label: meta?.label,
+                archived: meta?.archived ?? false,
+                busy: activeConversationTurns.has(id),
+                orchestratorMain: meta?.orchestratorMain ?? false,
+                ...orchestratorFlags(id),
+              };
             })
             .filter((s): s is NonNullable<typeof s> => s !== null);
           send(ws, { type: 'sessions:children-result', requestId: msg.requestId, ok: true, sessions });

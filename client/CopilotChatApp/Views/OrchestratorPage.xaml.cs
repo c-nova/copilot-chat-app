@@ -8,7 +8,7 @@ namespace CopilotChatApp.Views;
 /// PBI-025's orchestration screen: the main session's chat (top, human-editable) plus a
 /// polling-refreshed list of child session logs (bottom, read-only - see PBI.md's PBI-025 design
 /// notes for why children are never directly typed into by the human). Reachable from HomePage's
-/// per-session "⋯" menu ("🧩 Orchestratorで開く").
+/// per-session "⋯" menu ("🎼 Orchestratorで開く").
 /// </summary>
 public partial class OrchestratorPage : ContentPage
 {
@@ -20,6 +20,17 @@ public partial class OrchestratorPage : ContentPage
         InitializeComponent();
         _viewModel = new OrchestratorViewModel(mainSession, mainTurns, mainProfileId);
         BindingContext = _viewModel;
+#if WINDOWS
+        SetUpSubmitShortcut();
+#elif MACCATALYST
+        bool submitShortcutInstalled = false;
+        Loaded += (_, _) =>
+        {
+            if (submitShortcutInstalled) return;
+            submitShortcutInstalled = true;
+            SetUpSubmitShortcut();
+        };
+#endif
     }
 
     /// <summary>Opens the Orchestrator screen for a brand-new main session rooted at <paramref name="cwd"/> on <paramref name="mainProfileId"/> (the "New Chat" flow's Orchestrator option - see NewChatPage).</summary>
@@ -28,12 +39,63 @@ public partial class OrchestratorPage : ContentPage
         InitializeComponent();
         _viewModel = new OrchestratorViewModel(cwd, mainProfileId);
         BindingContext = _viewModel;
+#if WINDOWS
+        SetUpSubmitShortcut();
+#elif MACCATALYST
+        bool submitShortcutInstalled = false;
+        Loaded += (_, _) =>
+        {
+            if (submitShortcutInstalled) return;
+            submitShortcutInstalled = true;
+            SetUpSubmitShortcut();
+        };
+#endif
+    }
+
+    /// <summary>Ctrl+Enter (Windows) / Cmd+Enter (Mac Catalyst) submits the main session's message -
+    /// mirrors MainPage.SetUpSubmitShortcut so the shortcut behaves identically on both chat screens.</summary>
+    void SetUpSubmitShortcut()
+    {
+#if WINDOWS
+        InputEditor.HandlerChanged += (_, _) =>
+        {
+            if (InputEditor.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.TextBox textBox)
+            {
+                textBox.PreviewKeyDown += (_, e) =>
+                {
+                    var ctrlDown = Microsoft.UI.Input.InputKeyboardSource
+                        .GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+                        .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+                    if (ctrlDown && e.Key == Windows.System.VirtualKey.Enter)
+                    {
+                        e.Handled = true;
+                        _viewModel.MainChat.SendCommand.Execute(null);
+                    }
+                };
+            }
+        };
+#elif MACCATALYST
+        var sendMenuItem = new MenuFlyoutItem
+        {
+            Text = "Send",
+            Command = _viewModel.MainChat.SendCommand
+        };
+        sendMenuItem.KeyboardAccelerators.Add(new KeyboardAccelerator
+        {
+            Modifiers = KeyboardAcceleratorModifiers.Cmd,
+            Key = "\r"
+        });
+        var messageMenu = new MenuBarItem { Text = "Message" };
+        messageMenu.Add(sendMenuItem);
+        MenuBarItems.Add(messageMenu);
+#endif
     }
 
     protected override async void OnAppearing()
     {
         base.OnAppearing();
         await _viewModel.MainChat.InitializeAsync();
+        await _viewModel.MarkAsOrchestratorMainAsync();
         await _viewModel.RefreshChildrenAsync();
         _viewModel.StartPolling();
     }

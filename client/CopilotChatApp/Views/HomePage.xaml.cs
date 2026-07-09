@@ -274,6 +274,14 @@ public partial class HomePage : ContentPage
 
     async Task OpenSessionAsync(SessionSummary session)
     {
+        // PBI-027: a session that was ever opened as an Orchestrator "main" session reopens there
+        // again, rather than the plain chat screen, so the user doesn't have to re-pick every time.
+        if (session.OrchestratorMain)
+        {
+            await OpenOrchestratorAsync(session);
+            return;
+        }
+
         LoadingIndicator.IsVisible = true;
         LoadingIndicator.IsRunning = true;
         try
@@ -450,7 +458,7 @@ public partial class HomePage : ContentPage
     {
         if (e.Parameter is not SessionSummary session) return;
 
-        const string orchestratorActionText = "🧩 Orchestratorで開く";
+        const string orchestratorActionText = "🎼 Orchestratorで開く";
         const string deleteActionText = "完全に削除...";
         var archiveActionText = session.Archived ? "アーカイブ解除" : "アーカイブ";
         var choice = await DisplayActionSheet(session.DisplayTitle, "キャンセル", null, orchestratorActionText, "ラベルを編集", archiveActionText, deleteActionText);

@@ -128,4 +128,27 @@ describe('sessionMeta', () => {
     expect(meta?.label).toBe('Worker A');
     expect(meta?.parentSessionId).toBe('main-session');
   });
+
+  it('marks a session as an Orchestrator main session', () => {
+    const { getSessionMeta, setSessionOrchestratorMain } = require('../src/sessionMeta');
+    setSessionOrchestratorMain('main-1');
+    expect(getSessionMeta('main-1')?.orchestratorMain).toBe(true);
+  });
+
+  it('marking a session as Orchestrator main preserves an existing label', () => {
+    const { getSessionMeta, setSessionLabel, setSessionOrchestratorMain } = require('../src/sessionMeta');
+    setSessionLabel('main-1', 'My Orchestrator');
+    setSessionOrchestratorMain('main-1');
+    const meta = getSessionMeta('main-1');
+    expect(meta?.label).toBe('My Orchestrator');
+    expect(meta?.orchestratorMain).toBe(true);
+  });
+
+  it('marking a session as Orchestrator main is idempotent (safe to call every time the screen opens)', () => {
+    const { getSessionMeta, setSessionOrchestratorMain } = require('../src/sessionMeta');
+    setSessionOrchestratorMain('main-1');
+    const firstUpdatedAt = getSessionMeta('main-1')?.updatedAt;
+    setSessionOrchestratorMain('main-1');
+    expect(getSessionMeta('main-1')?.updatedAt).toBe(firstUpdatedAt);
+  });
 });

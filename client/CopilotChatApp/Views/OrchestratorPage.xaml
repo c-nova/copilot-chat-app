@@ -5,13 +5,13 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:models="clr-namespace:CopilotChatApp.Models"
     xmlns:vm="clr-namespace:CopilotChatApp.ViewModels"
-    Title="🧩 Orchestrator">
+    Title="🎼 Orchestrator">
 
     <ContentPage.ToolbarItems>
         <ToolbarItem Text="＋ 子セッション" Order="Primary" Priority="0" Clicked="OnAddChildClicked" />
     </ContentPage.ToolbarItems>
 
-    <Grid RowDefinitions="3*,Auto,Auto,2*" Padding="0">
+    <Grid RowDefinitions="3*,Auto,Auto,Auto,2*" Padding="0">
 
         <!-- Main session - the only pane a human ever types into directly. Child sessions below are
              driven exclusively by this session's AI (run_turn_on_session/spawn_session) - see
@@ -42,19 +42,42 @@
             </CollectionView.ItemTemplate>
         </CollectionView>
 
-        <!-- Composer for the main session only. -->
+        <!-- Composer for the main session only - mirrors MainPage's Editor (multi-line, Cmd/Ctrl+Enter
+             to submit - see OrchestratorPage.xaml.cs's SetUpSubmitShortcut) so behavior matches the
+             normal chat screen. -->
         <Grid Grid.Row="1"
               ColumnDefinitions="*,Auto"
               Padding="8,4"
               ColumnSpacing="8">
-            <Entry Grid.Column="0"
-                   Placeholder="メインセッションに指示する..."
-                   Text="{Binding MainChat.InputText}"
-                   ReturnCommand="{Binding MainChat.SendCommand}" />
-            <Button Grid.Column="1" Text="送信" Command="{Binding MainChat.SendCommand}" />
+            <Editor x:Name="InputEditor"
+                    Grid.Column="0"
+                    Text="{Binding MainChat.InputText}"
+                    Placeholder="メインセッションに指示する..."
+                    AutoSize="TextChanges"
+                    MinimumHeightRequest="44"
+                    MaxLength="8000" />
+            <Button Grid.Column="1" Text="送信" Command="{Binding MainChat.SendCommand}" VerticalOptions="Center" />
         </Grid>
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Padding="8,6,8,2" BackgroundColor="{AppThemeBinding Light=#F2F2F7, Dark=#1C1C1E}">
+        <!-- Sending status indicator - same as MainPage's (see PBI-015): shown from Send until the
+             turn is fully finalized, not just until the first visible activity. -->
+        <HorizontalStackLayout Grid.Row="2"
+                               IsVisible="{Binding MainChat.IsSending}"
+                               Spacing="6"
+                               Margin="12,0,12,4">
+            <ActivityIndicator IsRunning="{Binding MainChat.IsSending}"
+                               Color="Gray"
+                               WidthRequest="14"
+                               HeightRequest="14"
+                               VerticalOptions="Center" />
+            <Label Text="Copilot is working…"
+                   FontSize="14"
+                   FontAttributes="Italic"
+                   TextColor="Gray"
+                   VerticalOptions="Center" />
+        </HorizontalStackLayout>
+
+        <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Padding="8,6,8,2" BackgroundColor="{AppThemeBinding Light=#F2F2F7, Dark=#1C1C1E}">
             <Label Grid.Column="0"
                    Text="{Binding Children.Count, StringFormat='🧩 子セッション ({0})'}"
                    FontAttributes="Bold"
@@ -64,7 +87,7 @@
         <!-- Child session panes: read-only logs, ordered oldest-spawned first. Each pane is its own
              non-scrolling stack (BindableLayout, not CollectionView) so nesting it inside this outer
              ScrollView doesn't create the classic "scrollable inside scrollable" gesture conflict. -->
-        <ScrollView Grid.Row="3">
+        <ScrollView Grid.Row="4">
             <VerticalStackLayout Spacing="4" Padding="8" BindableLayout.ItemsSource="{Binding Children}">
                 <BindableLayout.ItemTemplate>
                     <DataTemplate x:DataType="vm:ChildSessionPaneViewModel">

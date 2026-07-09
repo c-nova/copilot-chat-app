@@ -509,6 +509,39 @@ public class ChatClientService : IAsyncDisposable
         }
     }
 
+    /// <summary>Marks a session as an Orchestrator "main" session (PBI-027) - idempotent, safe to call every time the Orchestrator screen opens for it. Lets HomePage route straight back into the Orchestrator screen next time instead of the plain chat screen.</summary>
+    public async Task MarkSessionAsOrchestratorMainAsync(string sessionId, CancellationToken ct = default)
+    {
+        if (_socket is null || _socket.State != WebSocketState.Open)
+        {
+            throw new InvalidOperationException("Not connected to server.");
+        }
+
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<SessionsUpdateMetaResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingSessionsUpdateMetaRequests[requestId] = tcs;
+        try
+        {
+            var payload = JsonSerializer.Serialize(new OutgoingSessionsSetOrchestratorMainMessage
+            {
+                RequestId = requestId,
+                SessionId = sessionId,
+            });
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
+
+            var result = await WaitWithTimeoutAsync(tcs, ct);
+            if (!result.Ok)
+            {
+                throw new InvalidOperationException(result.Error ?? "Failed to mark session as Orchestrator main");
+            }
+        }
+        finally
+        {
+            _pendingSessionsUpdateMetaRequests.Remove(requestId);
+        }
+    }
+
     /// <summary>
     /// Deletes a session (PBI-021). mode "soft" is equivalent to SetSessionArchivedAsync(id, true) -
     /// reversible, sidecar-only. mode "hard" permanently removes the session and its turns from the
@@ -913,6 +946,15 @@ public class ChatClientService : IAsyncDisposable
         [JsonPropertyName("archived")] public bool Archived { get; set; }
     }
 
+    /// <summary>Only ever carries `orchestratorMain: true` on the wire - for the same reason as OutgoingSessionsSetLabelMessage.</summary>
+    class OutgoingSessionsSetOrchestratorMainMessage
+    {
+        [JsonPropertyName("type")] public string Type { get; set; } = "sessions:update-meta";
+        [JsonPropertyName("requestId")] public string RequestId { get; set; } = string.Empty;
+        [JsonPropertyName("sessionId")] public string SessionId { get; set; } = string.Empty;
+        [JsonPropertyName("orchestratorMain")] public bool OrchestratorMain { get; set; } = true;
+    }
+
     class OutgoingSessionsDeleteMessage
     {
         [JsonPropertyName("type")] public string Type { get; set; } = "sessions:delete";
@@ -1027,6 +1069,12 @@ public class SessionSummary
     [JsonPropertyName("archived")] public bool Archived { get; set; }
     /// <summary>True while this session currently has a turn actively running (PBI-025's Orchestrator screen polls a child's history only while this is true).</summary>
     [JsonPropertyName("busy")] public bool Busy { get; set; }
+    /// <summary>True if this session has ever been opened as an Orchestrator "main" session (PBI-027) - HomePage uses this to route straight back into the Orchestrator screen instead of the plain chat screen when resuming it.</summary>
+    [JsonPropertyName("orchestratorMain")] public bool OrchestratorMain { get; set; }
+    /// <summary>True if this session currently has 1+ child sessions recorded under it (PBI-027) - drives a "👑 親" badge on the Home screen's session card.</summary>
+    [JsonPropertyName("isOrchestratorParent")] public bool IsOrchestratorParent { get; set; }
+    /// <summary>True if this session is recorded as a child of some other session (PBI-027) - drives a "🔗 子" badge on the Home screen's session card.</summary>
+    [JsonPropertyName("isOrchestratorChild")] public bool IsOrchestratorChild { get; set; }
 
     /// <summary>Client-only: which configured ServerProfile this session came from (set locally
     /// after fetching, never sent over the wire) - lets HomePage's aggregated multi-server list tell

@@ -95,6 +95,8 @@ export interface ClientSessionsUpdateMetaMessage {
   sessionId: string;
   label?: string | null;
   archived?: boolean;
+  /** PBI-027: marks this session as an Orchestrator "main" session - only ever sent as `true` (there's no "unmark" flow yet). */
+  orchestratorMain?: boolean;
 }
 
 /**
@@ -216,6 +218,12 @@ export interface SessionSummaryDto {
    * activeConversationTurns) - PBI-025's Orchestrator screen uses this to know when to keep
    * polling a child session's history vs. when it's settled and can stop. Absent/false otherwise. */
   busy?: boolean;
+  /** PBI-027: true if this session has ever been opened as an Orchestrator "main" session - HomePage uses this to route straight back into the Orchestrator screen instead of the plain chat screen when resuming it. */
+  orchestratorMain?: boolean;
+  /** PBI-027: true if this session currently has 1+ child sessions recorded under it (see sessionMeta.ts's getChildSessionIds) - drives a "👑 親" badge on the Home screen's session card. */
+  isOrchestratorParent?: boolean;
+  /** PBI-027: true if this session is recorded as a child of some other session (see sessionMeta.ts's parentSessionId) - drives a "🔗 子" badge on the Home screen's session card. */
+  isOrchestratorChild?: boolean;
 }
 
 export interface SessionTurnDto {
@@ -302,6 +310,7 @@ export interface ServerSessionsUpdateMetaResultMessage {
   ok: boolean;
   label?: string;
   archived?: boolean;
+  orchestratorMain?: boolean;
   error?: string;
 }
 
