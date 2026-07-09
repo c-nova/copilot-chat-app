@@ -105,6 +105,19 @@ describe('spawnOnPeer', () => {
 
     await expect(promise).rejects.toThrow(/closed the connection/);
   });
+
+  it('rejects immediately (rather than hanging until the timeout) when the peer is running an older build that replies with a generic error instead of sessions:spawn-result', async () => {
+    const promise = spawnOnPeer(peer, { parentSessionId: 'parent-1', message: 'hi' });
+    await new Promise((r) => setImmediate(r));
+    const sock = lastFakeSocket!;
+    sock.emit('open');
+
+    // Old wsServer.ts builds without sessions:spawn support fall through to this generic error,
+    // with no requestId at all (see wsServer.ts's final fallback).
+    sock.emit('message', Buffer.from(JSON.stringify({ type: 'error', message: 'Expected { type: "chat", conversationId, text }' })));
+
+    await expect(promise).rejects.toThrow(/older build/);
+  });
 });
 
 describe('findPeer', () => {

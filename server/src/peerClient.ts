@@ -76,6 +76,21 @@ export function spawnOnPeer(peer: PeerServerConfig, options: PeerSpawnOptions): 
       } catch {
         return;
       }
+      // A peer running an older build that doesn't understand sessions:spawn yet falls through
+      // to wsServer.ts's generic "Expected { type: chat, ... }" error response instead of a
+      // sessions:spawn-result - without this check we'd silently ignore that (it doesn't match
+      // the type/requestId check below) and hang until the operation timeout instead of
+      // surfacing the real reason immediately.
+      if (msg?.type === 'error' && (msg.requestId === undefined || msg.requestId === requestId)) {
+        finish(() =>
+          reject(
+            new Error(
+              `Peer server "${peer.name}" rejected the request: ${msg.message ?? 'unknown error'} (is it running an older build that doesn't support sessions:spawn yet?)`,
+            ),
+          ),
+        );
+        return;
+      }
       if (msg?.type === 'sessions:spawn-result' && msg.requestId === requestId) {
         if (msg.ok) {
           finish(() => resolve({ sessionId: msg.sessionId, finalText: msg.finalText }));
