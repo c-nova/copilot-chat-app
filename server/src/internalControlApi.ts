@@ -2,7 +2,7 @@ import * as http from 'http';
 import { config } from './config';
 import { getSessionHistory, listSessions } from './sessionHistory';
 import { getSessionMeta, markSessionControlTurn } from './sessionMeta';
-import { ConversationBusyError, runConversationTurn, timingSafeEqualString } from './wsServer';
+import { ConversationBusyError, runConversationTurn, spawnChildSession, timingSafeEqualString } from './wsServer';
 
 const MAX_BODY_BYTES = 1_000_000;
 
@@ -132,6 +132,31 @@ export function createInternalControlApi(): http.Server {
             markSessionControlTurn(sessionId, lastTurn.turnIndex);
           }
           sendJson(res, 200, { ok: true, finalText: result.finalText });
+        } catch (err: any) {
+          if (err?.name === 'ConversationBusyError' || err instanceof ConversationBusyError) {
+            sendJson(res, 409, { ok: false, error: err.message });
+            return;
+          }
+          throw err;
+        }
+        return;
+      }
+
+      if (req.method === 'POST' && req.url === '/internal/spawn-session') {
+        const body = await readJsonBody(req);
+        const parentSessionId = body?.parentSessionId;
+        if (typeof parentSessionId !== 'string' || !parentSessionId) {
+          sendJson(res, 400, { ok: false, error: 'parentSessionId is required' });
+          return;
+        }
+        try {
+          const result = await spawnChildSession({
+            parentSessionId,
+            existingSessionId: typeof body?.existingSessionId === 'string' ? body.existingSessionId : undefined,
+            cwd: typeof body?.cwd === 'string' ? body.cwd : undefined,
+            message: typeof body?.message === 'string' ? body.message : undefined,
+          });
+          sendJson(res, 200, { ok: true, sessionId: result.sessionId, finalText: result.finalText });
         } catch (err: any) {
           if (err?.name === 'ConversationBusyError' || err instanceof ConversationBusyError) {
             sendJson(res, 409, { ok: false, error: err.message });

@@ -188,6 +188,59 @@ async function runConversationTurnCore(
   }
 }
 
+export interface SpawnChildSessionOptions {
+  parentSessionId: string;
+  /** Attach an already-existing session as the child instead of creating a brand-new one. */
+  existingSessionId?: string;
+  /** Working directory for a brand-new child session; ignored when existingSessionId is set. */
+  cwd?: string;
+  /** First instruction to send to the child. Required when existingSessionId is omitted (a
+   * brand-new session has no content until it gets one) - optional when attaching an existing
+   * session (you can attach one purely for visibility, with no immediate instruction). */
+  message?: string;
+}
+
+export interface SpawnChildSessionResult {
+  sessionId: string;
+  finalText?: string;
+}
+
+/**
+ * Core logic behind PBI-025's Spawn feature - shared by the WebSocket handler (sessions:spawn,
+ * used by the Orchestrator screen's manual "+ add child" UI) and the internal control API's
+ * /internal/spawn-session (used by session-control's spawn_session MCP tool, for the AI-decided
+ * path), so both entry points behave identically rather than maintaining two copies of this logic.
+ */
+export async function spawnChildSession(options: SpawnChildSessionOptions): Promise<SpawnChildSessionResult> {
+  const childSessionId = options.existingSessionId ?? crypto.randomUUID();
+
+  if (options.existingSessionId && !options.message) {
+    // Just attaching an already-existing session for visibility - no turn to run, so nothing for
+    // run_turn_on_session-style rejectIfBusy to guard against here.
+    setSessionParent(childSessionId, options.parentSessionId);
+    return { sessionId: childSessionId };
+  }
+
+  if (!options.message) {
+    throw new Error('message is required when spawning a brand-new child session.');
+  }
+
+  // Same fail-fast-instead-of-queueing behavior as run_turn_on_session - see this file's other
+  // rejectIfBusy usages.
+  const result = await runConversationTurn(childSessionId, options.message, {
+    requireExistingSession: Boolean(options.existingSessionId),
+    rejectIfBusy: true,
+    requestedCwd: options.cwd,
+  });
+  setSessionParent(childSessionId, options.parentSessionId);
+  const turnsAfter = getSessionHistory(childSessionId);
+  const lastTurn = turnsAfter[turnsAfter.length - 1];
+  if (lastTurn) {
+    markSessionControlTurn(childSessionId, lastTurn.turnIndex);
+  }
+  return { sessionId: childSessionId, finalText: result.finalText };
+}
+
 export function createChatServer(): WebSocketServer {
   const wss = new WebSocketServer({ port: config.port, verifyClient: (info, done) => {
     if (isAuthorized(info.req)) {
@@ -377,38 +430,19 @@ export function createChatServer(): WebSocketServer {
 
       if (msg.type === 'sessions:spawn') {
         try {
-          const childSessionId = msg.existingSessionId ?? crypto.randomUUID();
-          if (msg.existingSessionId && !msg.message) {
-            // Just attaching an already-existing session for visibility in the Orchestrator
-            // screen - no turn to run, so nothing for run_turn_on_session-style rejectIfBusy to
-            // guard against here.
-            setSessionParent(childSessionId, msg.parentSessionId);
-            send(ws, { type: 'sessions:spawn-result', requestId: msg.requestId, ok: true, sessionId: childSessionId });
-          } else {
-            if (!msg.message) {
-              throw new Error('message is required when spawning a brand-new child session.');
-            }
-            // Same fail-fast-instead-of-queueing behavior as run_turn_on_session/sessions:ask -
-            // see wsServer.ts's other rejectIfBusy usages.
-            const result = await runConversationTurn(childSessionId, msg.message, {
-              requireExistingSession: Boolean(msg.existingSessionId),
-              rejectIfBusy: true,
-              requestedCwd: msg.cwd,
-            });
-            setSessionParent(childSessionId, msg.parentSessionId);
-            const turnsAfter = getSessionHistory(childSessionId);
-            const lastTurn = turnsAfter[turnsAfter.length - 1];
-            if (lastTurn) {
-              markSessionControlTurn(childSessionId, lastTurn.turnIndex);
-            }
-            send(ws, {
-              type: 'sessions:spawn-result',
-              requestId: msg.requestId,
-              ok: true,
-              sessionId: childSessionId,
-              finalText: result.finalText,
-            });
-          }
+          const result = await spawnChildSession({
+            parentSessionId: msg.parentSessionId,
+            existingSessionId: msg.existingSessionId,
+            cwd: msg.cwd,
+            message: msg.message,
+          });
+          send(ws, {
+            type: 'sessions:spawn-result',
+            requestId: msg.requestId,
+            ok: true,
+            sessionId: result.sessionId,
+            finalText: result.finalText,
+          });
         } catch (err: any) {
           send(ws, { type: 'sessions:spawn-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
         }

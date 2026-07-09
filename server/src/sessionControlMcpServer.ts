@@ -21,6 +21,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import * as http from 'http';
 import { z } from 'zod';
+import { getCallerSessionId } from './callerSessionId';
 
 const CONTROL_PORT = Number(process.env.INTERNAL_CONTROL_PORT ?? '5220');
 const CONTROL_TOKEN = process.env.INTERNAL_CONTROL_TOKEN ?? '';
@@ -121,6 +122,44 @@ server.registerTool(
   async ({ sessionId, message }: { sessionId: string; message: string }) => {
     const result = await callInternalApi('POST', '/internal/run-turn', { sessionId, message });
     return { content: [{ type: 'text' as const, text: typeof result.finalText === 'string' ? result.finalText : '' }] };
+  },
+);
+
+/**
+ * PBI-025: spawns a child session under *this* session in the Orchestrator screen, as either a
+ * brand-new session or an already-existing one attached for visibility. Deliberately has no
+ * "parentSessionId"/"which session am I" parameter for the model to fill in - getCallerSessionId()
+ * determines that deterministically by inspecting the parent `copilot` OS process's own
+ * `--session-id=<uuid>` argv (see callerSessionId.ts's doc comment for why this is far more
+ * reliable than asking the model to remember/report its own session id).
+ */
+server.registerTool(
+  'spawn_session',
+  {
+    title: 'Spawn a child session',
+    description: `Creates a new child session (or attaches an already-existing one) under this session for the user's Orchestrator screen, optionally dispatching it a first instruction. Use this when the user asks you to delegate/parallelize a sub-task to a worker session, or to coordinate with another session as a child of this one. ${CROSS_SESSION_GUIDANCE}`,
+    inputSchema: {
+      existingSessionId: z
+        .string()
+        .optional()
+        .describe('Attach this already-existing session id (from list_sessions) as the child, instead of creating a brand-new one.'),
+      cwd: z.string().optional().describe('Working directory for a brand-new child session. Ignored when existingSessionId is set.'),
+      message: z
+        .string()
+        .optional()
+        .describe('First instruction to send the child. Required when existingSessionId is omitted - a brand-new session needs at least one message to exist.'),
+    },
+  },
+  async ({ existingSessionId, cwd, message }: { existingSessionId?: string; cwd?: string; message?: string }) => {
+    const parentSessionId = getCallerSessionId();
+    if (!parentSessionId) {
+      throw new Error(
+        'Could not determine this session\'s own id (the parent process lookup failed) - spawn_session is unavailable right now.',
+      );
+    }
+    const result = await callInternalApi('POST', '/internal/spawn-session', { parentSessionId, existingSessionId, cwd, message });
+    const summary = `Spawned child session ${result.sessionId}.` + (typeof result.finalText === 'string' && result.finalText ? `\nReply: ${result.finalText}` : '');
+    return { content: [{ type: 'text' as const, text: summary }] };
   },
 );
 
