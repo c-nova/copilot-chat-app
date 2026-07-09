@@ -105,6 +105,40 @@ export function getSessionCwd(sessionId: string): string | null {
 }
 
 /**
+ * Looks up a single session's summary by id, regardless of BROWSE_ROOTS filtering (unlike
+ * listSessions) - used by PBI-025's sessions:children handler, which already knows the exact ids
+ * it wants (from sessionMeta's getChildSessionIds) and just needs their display info. Returns null
+ * if the CLI's session-store.db has no record of that id (e.g. it was hard-deleted).
+ */
+export function getSessionSummary(sessionId: string): SessionSummary | null {
+  const db = openDb();
+  if (!db) return null;
+  try {
+    const stmt = db.prepare(
+      `SELECT s.id as id, s.cwd as cwd, s.summary as summary, s.created_at as createdAt, s.updated_at as updatedAt,
+              (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) as turnCount
+       FROM sessions s
+       WHERE s.id = ?`,
+    );
+    const row = stmt.get(sessionId) as any;
+    if (!row) return null;
+    return {
+      id: String(row.id),
+      cwd: row.cwd ? String(row.cwd) : '',
+      summary: row.summary ? String(row.summary) : '(no summary)',
+      createdAt: String(row.createdAt),
+      updatedAt: String(row.updatedAt),
+      turnCount: Number(row.turnCount),
+    };
+  } catch (err) {
+    console.warn('[sessionHistory] getSessionSummary failed:', (err as Error)?.message);
+    return null;
+  } finally {
+    db.close();
+  }
+}
+
+/**
  * Permanently deletes a session and everything referencing it from the CLI's own
  * session-store.db (PBI-021's "hard delete" - irreversible, unlike sessionMeta.setSessionArchived's
  * reversible sidecar-only "soft delete"). Opens the db read-write, unlike every other function in

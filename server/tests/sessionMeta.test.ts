@@ -99,4 +99,33 @@ describe('sessionMeta', () => {
     expect(meta?.label).toBe('My Project');
     expect(meta?.sessionControlTurnIndexes).toEqual([2]);
   });
+
+  it('records a session as a child of a parent session', () => {
+    const { getSessionMeta, setSessionParent } = require('../src/sessionMeta');
+    setSessionParent('child-1', 'main-session');
+    expect(getSessionMeta('child-1')?.parentSessionId).toBe('main-session');
+  });
+
+  it('lists every child of a parent session', () => {
+    const { setSessionParent, getChildSessionIds } = require('../src/sessionMeta');
+    setSessionParent('child-1', 'main-session');
+    setSessionParent('child-2', 'main-session');
+    setSessionParent('unrelated', 'some-other-session');
+    const children = getChildSessionIds('main-session').sort();
+    expect(children).toEqual(['child-1', 'child-2']);
+  });
+
+  it('returns an empty array for a parent with no children', () => {
+    const { getChildSessionIds } = require('../src/sessionMeta');
+    expect(getChildSessionIds('no-such-parent')).toEqual([]);
+  });
+
+  it('setting a parent preserves an existing label on the same session', () => {
+    const { getSessionMeta, setSessionLabel, setSessionParent } = require('../src/sessionMeta');
+    setSessionLabel('child-1', 'Worker A');
+    setSessionParent('child-1', 'main-session');
+    const meta = getSessionMeta('child-1');
+    expect(meta?.label).toBe('Worker A');
+    expect(meta?.parentSessionId).toBe('main-session');
+  });
 });

@@ -9,8 +9,8 @@ import { addMcpServer, listMcpServers, removeMcpServer } from './mcpManager';
 import { isPathAllowed } from './pathAccess';
 import { notifyReplyReady } from './notify';
 import { ClientMessage, ServerMessage } from './protocol';
-import { deleteSessionHard, getSessionCwd, getSessionHistory, listSessions, searchSessions } from './sessionHistory';
-import { deleteSessionMeta, getSessionMeta, markSessionControlTurn, setSessionArchived, setSessionLabel } from './sessionMeta';
+import { deleteSessionHard, getSessionCwd, getSessionHistory, getSessionSummary, listSessions, searchSessions } from './sessionHistory';
+import { deleteSessionMeta, getChildSessionIds, getSessionMeta, markSessionControlTurn, setSessionArchived, setSessionLabel, setSessionParent } from './sessionMeta';
 import { getServerInfo } from './serverInfo';
 
 function send(ws: WebSocket, msg: ServerMessage) {
@@ -375,24 +375,59 @@ export function createChatServer(): WebSocketServer {
         return;
       }
 
-      if (msg.type === 'sessions:ask') {
+      if (msg.type === 'sessions:spawn') {
         try {
-          // Same fail-fast-instead-of-queueing behavior as session-control's run_turn_on_session
-          // (see internalControlApi.ts) - this is the same underlying capability, just triggered
-          // directly from the Home screen's "ask another session" shortcut (PBI-023) instead of an
-          // MCP tool call, so it shouldn't silently interject into a session mid-turn either.
-          const result = await runConversationTurn(msg.sessionId, msg.message, {
-            requireExistingSession: true,
-            rejectIfBusy: true,
-          });
-          const turnsAfter = getSessionHistory(msg.sessionId);
-          const lastTurn = turnsAfter[turnsAfter.length - 1];
-          if (lastTurn) {
-            markSessionControlTurn(msg.sessionId, lastTurn.turnIndex);
+          const childSessionId = msg.existingSessionId ?? crypto.randomUUID();
+          if (msg.existingSessionId && !msg.message) {
+            // Just attaching an already-existing session for visibility in the Orchestrator
+            // screen - no turn to run, so nothing for run_turn_on_session-style rejectIfBusy to
+            // guard against here.
+            setSessionParent(childSessionId, msg.parentSessionId);
+            send(ws, { type: 'sessions:spawn-result', requestId: msg.requestId, ok: true, sessionId: childSessionId });
+          } else {
+            if (!msg.message) {
+              throw new Error('message is required when spawning a brand-new child session.');
+            }
+            // Same fail-fast-instead-of-queueing behavior as run_turn_on_session/sessions:ask -
+            // see wsServer.ts's other rejectIfBusy usages.
+            const result = await runConversationTurn(childSessionId, msg.message, {
+              requireExistingSession: Boolean(msg.existingSessionId),
+              rejectIfBusy: true,
+              requestedCwd: msg.cwd,
+            });
+            setSessionParent(childSessionId, msg.parentSessionId);
+            const turnsAfter = getSessionHistory(childSessionId);
+            const lastTurn = turnsAfter[turnsAfter.length - 1];
+            if (lastTurn) {
+              markSessionControlTurn(childSessionId, lastTurn.turnIndex);
+            }
+            send(ws, {
+              type: 'sessions:spawn-result',
+              requestId: msg.requestId,
+              ok: true,
+              sessionId: childSessionId,
+              finalText: result.finalText,
+            });
           }
-          send(ws, { type: 'sessions:ask-result', requestId: msg.requestId, ok: true, finalText: result.finalText });
         } catch (err: any) {
-          send(ws, { type: 'sessions:ask-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
+          send(ws, { type: 'sessions:spawn-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
+        }
+        return;
+      }
+
+      if (msg.type === 'sessions:children') {
+        try {
+          const sessions = getChildSessionIds(msg.parentSessionId)
+            .map((id) => {
+              const summary = getSessionSummary(id);
+              if (!summary) return null;
+              const meta = getSessionMeta(id);
+              return { ...summary, label: meta?.label, archived: meta?.archived ?? false };
+            })
+            .filter((s): s is NonNullable<typeof s> => s !== null);
+          send(ws, { type: 'sessions:children-result', requestId: msg.requestId, ok: true, sessions });
+        } catch (err: any) {
+          send(ws, { type: 'sessions:children-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
         }
         return;
       }

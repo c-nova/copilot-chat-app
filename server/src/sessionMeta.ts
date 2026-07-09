@@ -20,6 +20,14 @@ export interface SessionMetaEntry {
    * session-store.db has no concept of turn origin and we never write to that db.
    */
   sessionControlTurnIndexes?: number[];
+  /**
+   * PBI-025: the session id of this session's "main"/parent session in the Orchestrator screen, if
+   * this session was Spawned as a child (either manually from the UI or automatically via the
+   * session-control MCP's spawn_session tool). Absent for ordinary top-level sessions. Sidecar-only,
+   * same rationale as the fields above - this is purely an app-level relationship the CLI's own
+   * session-store.db has no concept of.
+   */
+  parentSessionId?: string;
 }
 
 type SessionMetaStore = Record<string, SessionMetaEntry>;
@@ -97,4 +105,23 @@ export function markSessionControlTurn(sessionId: string, turnIndex: number): vo
   indexes.add(turnIndex);
   store[sessionId] = { ...existing, updatedAt: new Date().toISOString(), sessionControlTurnIndexes: [...indexes].sort((a, b) => a - b) };
   writeStore(store);
+}
+
+/**
+ * Records that `sessionId` was Spawned as a child of `parentSessionId` (PBI-025's Orchestrator
+ * screen) - called once, whether the child was newly created or an existing session got attached.
+ */
+export function setSessionParent(sessionId: string, parentSessionId: string): void {
+  const store = readStore();
+  const existing = store[sessionId];
+  store[sessionId] = { ...existing, updatedAt: new Date().toISOString(), parentSessionId };
+  writeStore(store);
+}
+
+/** Returns every session id currently recorded as a child of `parentSessionId`, in no particular order. */
+export function getChildSessionIds(parentSessionId: string): string[] {
+  const store = readStore();
+  return Object.entries(store)
+    .filter(([, meta]) => meta.parentSessionId === parentSessionId)
+    .map(([sessionId]) => sessionId);
 }

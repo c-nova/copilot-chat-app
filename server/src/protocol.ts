@@ -111,20 +111,29 @@ export interface ClientSessionsDeleteMessage {
 }
 
 /**
- * PBI-023: sends a one-off message to a *different* existing session (not the one this socket is
- * currently chatting in) and waits for its full reply - a UI shortcut for the same thing
- * session-control's run_turn_on_session MCP tool does, but triggerable directly from the Home
- * screen without relying on a model deciding to call it. Refuses (rejectIfBusy) rather than
- * silently queueing if the target session already has a turn actively running, same as
- * run_turn_on_session - see wsServer.ts. The resulting turn is marked via sessionMeta's
- * sessionControlTurnIndexes (PBI-022) so it renders with the same "message from another session"
- * badge when that session is later opened.
+ * PBI-025: Spawns a child session under the Orchestrator screen's main session, either creating a
+ * brand-new one or attaching an already-existing one. `message` is the child's first instruction -
+ * required when `existingSessionId` is omitted (a brand-new session has no content until it gets
+ * one; the CLI has no concept of an "empty" session), optional when attaching an existing session
+ * (you can attach one purely for visibility, with no immediate instruction). Fails fast rather than
+ * queueing if the target already has a turn actively running, same as run_turn_on_session/
+ * sessions:ask before it - see wsServer.ts.
  */
-export interface ClientSessionsAskMessage {
-  type: 'sessions:ask';
+export interface ClientSessionsSpawnMessage {
+  type: 'sessions:spawn';
   requestId: string;
-  sessionId: string;
-  message: string;
+  parentSessionId: string;
+  existingSessionId?: string;
+  /** Working directory for a brand-new child session; ignored when existingSessionId is set. */
+  cwd?: string;
+  message?: string;
+}
+
+/** Lists the session ids currently recorded as children of `parentSessionId` (see sessionMeta.ts's setSessionParent), as full SessionSummaryDto entries so the Orchestrator screen can render them without a second round-trip. */
+export interface ClientSessionsChildrenMessage {
+  type: 'sessions:children';
+  requestId: string;
+  parentSessionId: string;
 }
 
 export type ClientMessage =
@@ -140,7 +149,8 @@ export type ClientMessage =
   | ClientServerInfoMessage
   | ClientSessionsUpdateMetaMessage
   | ClientSessionsDeleteMessage
-  | ClientSessionsAskMessage;
+  | ClientSessionsSpawnMessage
+  | ClientSessionsChildrenMessage;
 
 /** Messages sent from server -> client over the WebSocket. */
 export interface ServerDeltaMessage {
@@ -298,11 +308,20 @@ export interface ServerSessionsDeleteResultMessage {
   error?: string;
 }
 
-export interface ServerSessionsAskResultMessage {
-  type: 'sessions:ask-result';
+export interface ServerSessionsSpawnResultMessage {
+  type: 'sessions:spawn-result';
   requestId: string;
   ok: boolean;
+  sessionId?: string;
   finalText?: string;
+  error?: string;
+}
+
+export interface ServerSessionsChildrenResultMessage {
+  type: 'sessions:children-result';
+  requestId: string;
+  ok: boolean;
+  sessions?: SessionSummaryDto[];
   error?: string;
 }
 
@@ -320,4 +339,5 @@ export type ServerMessage =
   | ServerInfoResultMessage
   | ServerSessionsUpdateMetaResultMessage
   | ServerSessionsDeleteResultMessage
-  | ServerSessionsAskResultMessage;
+  | ServerSessionsSpawnResultMessage
+  | ServerSessionsChildrenResultMessage;

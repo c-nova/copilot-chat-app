@@ -439,22 +439,20 @@ public partial class HomePage : ContentPage
     /// SetSessionLabelAsync/SetSessionArchivedAsync just persist to the server's sidecar metadata
     /// store - a full RefreshAsync afterwards is the simplest way to reflect the change, since
     /// SessionSummary is a plain POCO with no change notification of its own to patch the existing
-    /// ObservableCollection entry in place. "完全に削除" (PBI-021's hard delete) is the one
-    /// destructive option here - passed as DisplayActionSheet's `destruction` button so the OS
-    /// styles it distinctly (e.g. red text on iOS/Mac), and gated behind its own confirmation
-    /// dialog since, unlike archive, it's irreversible (removes the session from the CLI's own
-    /// session-store.db, not just this app's sidecar). "他のセッションに一言送る" (PBI-023) is a
-    /// UI shortcut for the same thing session-control's run_turn_on_session MCP tool does -
-    /// triggerable directly here instead of waiting for a model to decide to call it.
+    /// ObservableCollection entry in place. "完全に削除" (PBI-021's hard delete) is irreversible
+    /// (removes the session from the CLI's own session-store.db, not just this app's sidecar), so
+    /// it's gated behind its own confirmation dialog and deliberately placed last as a plain
+    /// (non-destructive-styled) button rather than DisplayActionSheet's dedicated `destruction` slot -
+    /// that slot renders first/most-prominent on some platforms (Mac Catalyst), which felt too easy
+    /// to tap by accident for something this irreversible.
     /// </summary>
     async void OnCardMenuTapped(object? sender, TappedEventArgs e)
     {
         if (e.Parameter is not SessionSummary session) return;
 
         const string deleteActionText = "完全に削除...";
-        const string askActionText = "他のセッションに一言送る...";
         var archiveActionText = session.Archived ? "アーカイブ解除" : "アーカイブ";
-        var choice = await DisplayActionSheet(session.DisplayTitle, "キャンセル", deleteActionText, "ラベルを編集", archiveActionText, askActionText);
+        var choice = await DisplayActionSheet(session.DisplayTitle, "キャンセル", null, "ラベルを編集", archiveActionText, deleteActionText);
 
         try
         {
@@ -488,51 +486,10 @@ public partial class HomePage : ContentPage
                 await client.DeleteSessionAsync(session.Id, "hard");
                 await RefreshAsync();
             }
-            else if (choice == askActionText)
-            {
-                await AskOtherSessionAsync(session, client);
-            }
         }
         catch (Exception ex)
         {
             await DisplayAlert("Error", $"操作に失敗しました: {ex.Message}", "OK");
         }
-    }
-
-    /// <summary>
-    /// PBI-023: lets the user pick another session on the *same* server profile as `session` and
-    /// send it a one-off message via ChatClientService.AskSessionAsync, without opening it. Target
-    /// sessions are only offered from the same profile, since a single WebSocket connection (and
-    /// the server-side session-store.db it talks to) is scoped to one server. Picker labels include
-    /// a short id suffix since two sessions can otherwise share the same DisplayTitle (e.g. both
-    /// untitled) - DisplayActionSheet only returns the tapped label text, not an index.
-    /// </summary>
-    async Task AskOtherSessionAsync(SessionSummary session, ChatClientService client)
-    {
-        var candidates = _allSessions
-            .Where(s => s.ProfileId == session.ProfileId && s.Id != session.Id)
-            .ToList();
-        if (candidates.Count == 0)
-        {
-            await DisplayAlert("他のセッションに一言送る", "同じサーバーに他のセッションがありません。", "OK");
-            return;
-        }
-
-        var labelToSession = candidates.ToDictionary(s => $"{s.DisplayTitle} ({s.Id[..8]})", s => s);
-        var targetLabel = await DisplayActionSheet("どのセッションに送る?", "キャンセル", null, labelToSession.Keys.ToArray());
-        if (targetLabel is null || targetLabel == "キャンセル" || !labelToSession.TryGetValue(targetLabel, out var target))
-        {
-            return;
-        }
-
-        var message = await DisplayPromptAsync(
-            "他のセッションに一言送る",
-            $"「{target.DisplayTitle}」に送るメッセージを入力してください",
-            maxLength: 2000);
-        if (string.IsNullOrWhiteSpace(message)) return;
-
-        var reply = await client.AskSessionAsync(target.Id, message);
-        await DisplayAlert("送信しました", string.IsNullOrWhiteSpace(reply) ? "(空の返信でした)" : reply, "OK");
-        await RefreshAsync();
     }
 }
