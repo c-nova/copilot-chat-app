@@ -22,6 +22,7 @@ public class ChatClientService : IAsyncDisposable
     readonly Dictionary<string, TaskCompletionSource<ServerInfoResult>> _pendingServerInfoRequests = new();
     readonly Dictionary<string, TaskCompletionSource<SessionsUpdateMetaResult>> _pendingSessionsUpdateMetaRequests = new();
     readonly Dictionary<string, TaskCompletionSource<SessionsDeleteResult>> _pendingSessionsDeleteRequests = new();
+    readonly Dictionary<string, TaskCompletionSource<SessionsAskResult>> _pendingSessionsAskRequests = new();
 
     public event Action<string>? OnDelta;
     public event Action<string>? OnFinal;
@@ -547,6 +548,47 @@ public class ChatClientService : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Sends a one-off message to a *different*, already-existing session and waits for its full
+    /// reply (PBI-023's "ask another session" Home screen shortcut - the same underlying capability
+    /// as session-control's run_turn_on_session MCP tool, just triggered directly from the UI
+    /// instead of a model deciding to call it). The server refuses (rather than queueing) if that
+    /// session already has a turn actively running - surfaces as the thrown exception's message.
+    /// </summary>
+    public async Task<string> AskSessionAsync(string sessionId, string message, CancellationToken ct = default)
+    {
+        if (_socket is null || _socket.State != WebSocketState.Open)
+        {
+            throw new InvalidOperationException("Not connected to server.");
+        }
+
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<SessionsAskResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingSessionsAskRequests[requestId] = tcs;
+        try
+        {
+            var payload = JsonSerializer.Serialize(new OutgoingSessionsAskMessage
+            {
+                RequestId = requestId,
+                SessionId = sessionId,
+                Message = message,
+            });
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
+
+            var result = await WaitWithTimeoutAsync(tcs, ct);
+            if (!result.Ok)
+            {
+                throw new InvalidOperationException(result.Error ?? "Failed to ask session");
+            }
+            return result.FinalText ?? string.Empty;
+        }
+        finally
+        {
+            _pendingSessionsAskRequests.Remove(requestId);
+        }
+    }
+
     async Task ReceiveLoopAsync(ClientWebSocket socket, CancellationToken ct)
     {
         var buffer = new byte[8192];
@@ -666,6 +708,12 @@ public class ChatClientService : IAsyncDisposable
                     deleteTcs.TrySetResult(new SessionsDeleteResult(msg.Ok ?? false, msg.Error));
                 }
                 break;
+            case "sessions:ask-result":
+                if (msg.RequestId is not null && _pendingSessionsAskRequests.Remove(msg.RequestId, out var askTcs))
+                {
+                    askTcs.TrySetResult(new SessionsAskResult(msg.Ok ?? false, msg.Error, msg.FinalText));
+                }
+                break;
         }
     }
 
@@ -732,6 +780,7 @@ public class ChatClientService : IAsyncDisposable
         [JsonPropertyName("entries")] public List<FsEntry>? Entries { get; set; }
         [JsonPropertyName("roots")] public List<string>? Roots { get; set; }
         [JsonPropertyName("info")] public ServerInfo? Info { get; set; }
+        [JsonPropertyName("finalText")] public string? FinalText { get; set; }
     }
 
     class OutgoingMcpListMessage
@@ -828,6 +877,14 @@ public class ChatClientService : IAsyncDisposable
         [JsonPropertyName("mode")] public string Mode { get; set; } = "soft";
     }
 
+    class OutgoingSessionsAskMessage
+    {
+        [JsonPropertyName("type")] public string Type { get; set; } = "sessions:ask";
+        [JsonPropertyName("requestId")] public string RequestId { get; set; } = string.Empty;
+        [JsonPropertyName("sessionId")] public string SessionId { get; set; } = string.Empty;
+        [JsonPropertyName("message")] public string Message { get; set; } = string.Empty;
+    }
+
     record McpResult(bool Ok, string? Error, List<McpServerSummary>? Servers, McpServerSummary? Server);
     record SessionsListResult(bool Ok, string? Error, List<SessionSummary>? Sessions);
     record SessionsHistoryResult(bool Ok, string? Error, List<SessionTurn>? Turns);
@@ -836,6 +893,7 @@ public class ChatClientService : IAsyncDisposable
     record ServerInfoResult(bool Ok, string? Error, ServerInfo? Info);
     record SessionsUpdateMetaResult(bool Ok, string? Error);
     record SessionsDeleteResult(bool Ok, string? Error);
+    record SessionsAskResult(bool Ok, string? Error, string? FinalText);
 }
 
 public record ToolEventArgs(string Status, string Name, string? Summary, string? Detail, bool? Success);

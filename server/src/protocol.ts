@@ -110,6 +110,23 @@ export interface ClientSessionsDeleteMessage {
   mode: 'soft' | 'hard';
 }
 
+/**
+ * PBI-023: sends a one-off message to a *different* existing session (not the one this socket is
+ * currently chatting in) and waits for its full reply - a UI shortcut for the same thing
+ * session-control's run_turn_on_session MCP tool does, but triggerable directly from the Home
+ * screen without relying on a model deciding to call it. Refuses (rejectIfBusy) rather than
+ * silently queueing if the target session already has a turn actively running, same as
+ * run_turn_on_session - see wsServer.ts. The resulting turn is marked via sessionMeta's
+ * sessionControlTurnIndexes (PBI-022) so it renders with the same "message from another session"
+ * badge when that session is later opened.
+ */
+export interface ClientSessionsAskMessage {
+  type: 'sessions:ask';
+  requestId: string;
+  sessionId: string;
+  message: string;
+}
+
 export type ClientMessage =
   | ClientChatMessage
   | ClientMcpListMessage
@@ -122,7 +139,8 @@ export type ClientMessage =
   | ClientFsGitCloneMessage
   | ClientServerInfoMessage
   | ClientSessionsUpdateMetaMessage
-  | ClientSessionsDeleteMessage;
+  | ClientSessionsDeleteMessage
+  | ClientSessionsAskMessage;
 
 /** Messages sent from server -> client over the WebSocket. */
 export interface ServerDeltaMessage {
@@ -280,6 +298,14 @@ export interface ServerSessionsDeleteResultMessage {
   error?: string;
 }
 
+export interface ServerSessionsAskResultMessage {
+  type: 'sessions:ask-result';
+  requestId: string;
+  ok: boolean;
+  finalText?: string;
+  error?: string;
+}
+
 export type ServerMessage =
   | ServerDeltaMessage
   | ServerFinalMessage
@@ -293,4 +319,5 @@ export type ServerMessage =
   | ServerFsGitCloneResultMessage
   | ServerInfoResultMessage
   | ServerSessionsUpdateMetaResultMessage
-  | ServerSessionsDeleteResultMessage;
+  | ServerSessionsDeleteResultMessage
+  | ServerSessionsAskResultMessage;

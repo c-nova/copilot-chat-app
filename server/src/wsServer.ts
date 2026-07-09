@@ -10,7 +10,7 @@ import { isPathAllowed } from './pathAccess';
 import { notifyReplyReady } from './notify';
 import { ClientMessage, ServerMessage } from './protocol';
 import { deleteSessionHard, getSessionCwd, getSessionHistory, listSessions, searchSessions } from './sessionHistory';
-import { deleteSessionMeta, getSessionMeta, setSessionArchived, setSessionLabel } from './sessionMeta';
+import { deleteSessionMeta, getSessionMeta, markSessionControlTurn, setSessionArchived, setSessionLabel } from './sessionMeta';
 import { getServerInfo } from './serverInfo';
 
 function send(ws: WebSocket, msg: ServerMessage) {
@@ -371,6 +371,28 @@ export function createChatServer(): WebSocketServer {
           send(ws, { type: 'sessions:delete-result', requestId: msg.requestId, ok: true });
         } catch (err: any) {
           send(ws, { type: 'sessions:delete-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
+        }
+        return;
+      }
+
+      if (msg.type === 'sessions:ask') {
+        try {
+          // Same fail-fast-instead-of-queueing behavior as session-control's run_turn_on_session
+          // (see internalControlApi.ts) - this is the same underlying capability, just triggered
+          // directly from the Home screen's "ask another session" shortcut (PBI-023) instead of an
+          // MCP tool call, so it shouldn't silently interject into a session mid-turn either.
+          const result = await runConversationTurn(msg.sessionId, msg.message, {
+            requireExistingSession: true,
+            rejectIfBusy: true,
+          });
+          const turnsAfter = getSessionHistory(msg.sessionId);
+          const lastTurn = turnsAfter[turnsAfter.length - 1];
+          if (lastTurn) {
+            markSessionControlTurn(msg.sessionId, lastTurn.turnIndex);
+          }
+          send(ws, { type: 'sessions:ask-result', requestId: msg.requestId, ok: true, finalText: result.finalText });
+        } catch (err: any) {
+          send(ws, { type: 'sessions:ask-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
         }
         return;
       }
