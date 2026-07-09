@@ -22,6 +22,10 @@
                             <VerticalStackLayout Grid.Column="0">
                                 <Label Text="{Binding Name}" FontAttributes="Bold" />
                                 <Label Text="{Binding DisplaySubtitle}" FontSize="12" TextColor="Gray" LineBreakMode="TailTruncation" />
+                                <Label Text="🌐 全セッション共通で自動的に有効な組み込み機能です(削除してもサーバー再起動時に自動で再登録されます)"
+                                       FontSize="11"
+                                       TextColor="CornflowerBlue"
+                                       IsVisible="{Binding IsSessionControl}" />
                             </VerticalStackLayout>
                             <Button Grid.Column="1"
                                     Text="削除"

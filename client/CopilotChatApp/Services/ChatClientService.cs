@@ -891,6 +891,17 @@ public class McpServerSummary
     public string DisplaySubtitle => Type == "local"
         ? $"{Command} {string.Join(' ', Args ?? new List<string>())}".Trim()
         : (Url ?? string.Empty);
+
+    /// <summary>
+    /// True for the built-in "session-control" MCP server (PBI-024): auto-registered by the server
+    /// on every startup (see server/src/index.ts's ensureSessionControlMcpRegistered) if missing,
+    /// and - unlike every other MCP server here, which is scoped per-server-profile by the user's
+    /// own choice - it's registered globally to the `copilot` CLI itself, so it's technically
+    /// reachable from any session on this machine, not just ones this app created. Drives an
+    /// explanatory badge in McpServersPage rather than hiding/restricting it, since removing it here
+    /// is harmless (it just comes back on the server's next restart).
+    /// </summary>
+    public bool IsSessionControl => Name == "session-control";
 }
 
 public class SessionSummary
