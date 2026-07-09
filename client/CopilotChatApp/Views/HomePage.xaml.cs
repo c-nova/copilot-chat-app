@@ -337,7 +337,7 @@ public partial class HomePage : ContentPage
             return;
         }
         SettingsService.ActiveProfileId = profile.Id;
-        await Navigation.PushAsync(new NewChatPage(GetOrCreateClient(profile.Id)));
+        await Navigation.PushAsync(new NewChatPage(GetOrCreateClient(profile.Id), profile.Id));
     }
 
     async void OnSettingsClicked(object? sender, EventArgs e)
@@ -450,14 +450,19 @@ public partial class HomePage : ContentPage
     {
         if (e.Parameter is not SessionSummary session) return;
 
+        const string orchestratorActionText = "🧩 Orchestratorで開く";
         const string deleteActionText = "完全に削除...";
         var archiveActionText = session.Archived ? "アーカイブ解除" : "アーカイブ";
-        var choice = await DisplayActionSheet(session.DisplayTitle, "キャンセル", null, "ラベルを編集", archiveActionText, deleteActionText);
+        var choice = await DisplayActionSheet(session.DisplayTitle, "キャンセル", null, orchestratorActionText, "ラベルを編集", archiveActionText, deleteActionText);
 
         try
         {
             var client = GetOrCreateClient(session.ProfileId);
-            if (choice == "ラベルを編集")
+            if (choice == orchestratorActionText)
+            {
+                await OpenOrchestratorAsync(session);
+            }
+            else if (choice == "ラベルを編集")
             {
                 var newLabel = await DisplayPromptAsync(
                     "ラベルを編集",
@@ -490,6 +495,35 @@ public partial class HomePage : ContentPage
         catch (Exception ex)
         {
             await DisplayAlert("Error", $"操作に失敗しました: {ex.Message}", "OK");
+        }
+    }
+
+    /// <summary>Opens the Orchestrator screen (PBI-025) with `session` as the main session - same connect/history-fetch dance as <see cref="OpenSessionAsync"/>.</summary>
+    async Task OpenOrchestratorAsync(SessionSummary session)
+    {
+        LoadingIndicator.IsVisible = true;
+        LoadingIndicator.IsRunning = true;
+        try
+        {
+            var profile = SettingsService.GetProfiles().FirstOrDefault(p => p.Id == session.ProfileId);
+            if (profile is null)
+            {
+                await DisplayAlert("Error", "This session's server profile no longer exists.", "OK");
+                return;
+            }
+            await EnsureConnectedAsync(profile);
+            var turns = await GetOrCreateClient(profile.Id).GetSessionHistoryAsync(session.Id);
+            SettingsService.ActiveProfileId = profile.Id;
+            await Navigation.PushAsync(new OrchestratorPage(session, turns, profile.Id));
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlert("Error", $"Failed to open Orchestrator: {ex.Message}", "OK");
+        }
+        finally
+        {
+            LoadingIndicator.IsVisible = false;
+            LoadingIndicator.IsRunning = false;
         }
     }
 }

@@ -313,7 +313,7 @@ export function createChatServer(): WebSocketServer {
         try {
           const sessions = listSessions([...config.browseRoots, config.workDir]).map((s) => {
             const meta = getSessionMeta(s.id);
-            return { ...s, label: meta?.label, archived: meta?.archived ?? false };
+            return { ...s, label: meta?.label, archived: meta?.archived ?? false, busy: activeConversationTurns.has(s.id) };
           });
           send(ws, { type: 'sessions:list-result', requestId: msg.requestId, ok: true, sessions });
         } catch (err: any) {
@@ -342,7 +342,7 @@ export function createChatServer(): WebSocketServer {
         try {
           const sessions = searchSessions(msg.query, [...config.browseRoots, config.workDir]).map((s) => {
             const meta = getSessionMeta(s.id);
-            return { ...s, label: meta?.label, archived: meta?.archived ?? false };
+            return { ...s, label: meta?.label, archived: meta?.archived ?? false, busy: activeConversationTurns.has(s.id) };
           });
           send(ws, { type: 'sessions:search-result', requestId: msg.requestId, ok: true, sessions });
         } catch (err: any) {
@@ -456,7 +456,7 @@ export function createChatServer(): WebSocketServer {
               const summary = getSessionSummary(id);
               if (!summary) return null;
               const meta = getSessionMeta(id);
-              return { ...summary, label: meta?.label, archived: meta?.archived ?? false };
+              return { ...summary, label: meta?.label, archived: meta?.archived ?? false, busy: activeConversationTurns.has(id) };
             })
             .filter((s): s is NonNullable<typeof s> => s !== null);
           send(ws, { type: 'sessions:children-result', requestId: msg.requestId, ok: true, sessions });

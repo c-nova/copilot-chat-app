@@ -1,5 +1,6 @@
 import * as http from 'http';
 import { config } from './config';
+import { findPeer, spawnOnPeer } from './peerClient';
 import { getSessionHistory, listSessions } from './sessionHistory';
 import { getSessionMeta, markSessionControlTurn } from './sessionMeta';
 import { ConversationBusyError, runConversationTurn, spawnChildSession, timingSafeEqualString } from './wsServer';
@@ -149,13 +150,26 @@ export function createInternalControlApi(): http.Server {
           sendJson(res, 400, { ok: false, error: 'parentSessionId is required' });
           return;
         }
+        const targetPeer = typeof body?.targetPeer === 'string' && body.targetPeer ? body.targetPeer : undefined;
         try {
-          const result = await spawnChildSession({
-            parentSessionId,
+          const spawnOptions = {
             existingSessionId: typeof body?.existingSessionId === 'string' ? body.existingSessionId : undefined,
             cwd: typeof body?.cwd === 'string' ? body.cwd : undefined,
             message: typeof body?.message === 'string' ? body.message : undefined,
-          });
+          };
+          let result: { sessionId: string; finalText?: string };
+          if (targetPeer) {
+            // PBI-026: dispatch to a configured peer server (cross-machine) instead of spawning
+            // locally - see peerClient.ts's design notes.
+            const peer = findPeer(config.peers, targetPeer);
+            if (!peer) {
+              sendJson(res, 400, { ok: false, error: `Unknown peer server "${targetPeer}" - check PEER_SERVERS config.` });
+              return;
+            }
+            result = await spawnOnPeer(peer, { parentSessionId, ...spawnOptions });
+          } else {
+            result = await spawnChildSession({ parentSessionId, ...spawnOptions });
+          }
           sendJson(res, 200, { ok: true, sessionId: result.sessionId, finalText: result.finalText });
         } catch (err: any) {
           if (err?.name === 'ConversationBusyError' || err instanceof ConversationBusyError) {
@@ -164,6 +178,14 @@ export function createInternalControlApi(): http.Server {
           }
           throw err;
         }
+        return;
+      }
+
+      if (req.method === 'GET' && req.url === '/internal/peers') {
+        // Names only - never tokens - since this is what the session-control MCP subprocess reads
+        // to build the list_servers tool's response, and that response can end up in front of the
+        // model (see sessionControlMcpServer.ts).
+        sendJson(res, 200, { ok: true, peers: config.peers.map((p) => ({ name: p.name })) });
         return;
       }
 

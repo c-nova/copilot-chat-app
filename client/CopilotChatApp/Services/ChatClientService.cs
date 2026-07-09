@@ -22,6 +22,8 @@ public class ChatClientService : IAsyncDisposable
     readonly Dictionary<string, TaskCompletionSource<ServerInfoResult>> _pendingServerInfoRequests = new();
     readonly Dictionary<string, TaskCompletionSource<SessionsUpdateMetaResult>> _pendingSessionsUpdateMetaRequests = new();
     readonly Dictionary<string, TaskCompletionSource<SessionsDeleteResult>> _pendingSessionsDeleteRequests = new();
+    readonly Dictionary<string, TaskCompletionSource<SessionsSpawnResult>> _pendingSessionsSpawnRequests = new();
+    readonly Dictionary<string, TaskCompletionSource<SessionsListResult>> _pendingSessionsChildrenRequests = new();
 
     public event Action<string>? OnDelta;
     public event Action<string>? OnFinal;
@@ -547,6 +549,83 @@ public class ChatClientService : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Spawns a child session under <paramref name="parentSessionId"/> for the Orchestrator screen
+    /// (PBI-025) - either a brand-new session (when <paramref name="existingSessionId"/> is null,
+    /// <paramref name="message"/> is then required) or an already-existing one attached purely for
+    /// visibility (<paramref name="message"/> optional in that case). Fails fast (see server's
+    /// rejectIfBusy) rather than queueing if the target already has a turn actively running.
+    /// </summary>
+    public async Task<(string SessionId, string? FinalText)> SpawnChildSessionAsync(string parentSessionId, string? existingSessionId = null, string? cwd = null, string? message = null, CancellationToken ct = default)
+    {
+        if (_socket is null || _socket.State != WebSocketState.Open)
+        {
+            throw new InvalidOperationException("Not connected to server.");
+        }
+
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<SessionsSpawnResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingSessionsSpawnRequests[requestId] = tcs;
+        try
+        {
+            var payload = JsonSerializer.Serialize(new OutgoingSessionsSpawnMessage
+            {
+                RequestId = requestId,
+                ParentSessionId = parentSessionId,
+                ExistingSessionId = existingSessionId,
+                Cwd = cwd,
+                Message = message,
+            });
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            // A brand-new child's first turn can take a while (same as any chat turn) - give this much
+            // more headroom than the default request timeout rather than force-disconnecting mid-spawn.
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+            await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, linkedCts.Token);
+
+            var result = await tcs.Task.WaitAsync(linkedCts.Token);
+            if (!result.Ok)
+            {
+                throw new InvalidOperationException(result.Error ?? "Failed to spawn child session");
+            }
+            return (result.SessionId ?? throw new InvalidOperationException("Spawn succeeded but no sessionId was returned."), result.FinalText);
+        }
+        finally
+        {
+            _pendingSessionsSpawnRequests.Remove(requestId);
+        }
+    }
+
+    /// <summary>Lists the sessions currently recorded as children of <paramref name="parentSessionId"/> (PBI-025), as full summaries so the Orchestrator screen can render them without a second round-trip.</summary>
+    public async Task<List<SessionSummary>> GetChildSessionsAsync(string parentSessionId, CancellationToken ct = default)
+    {
+        if (_socket is null || _socket.State != WebSocketState.Open)
+        {
+            throw new InvalidOperationException("Not connected to server.");
+        }
+
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<SessionsListResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingSessionsChildrenRequests[requestId] = tcs;
+        try
+        {
+            var payload = JsonSerializer.Serialize(new OutgoingSessionsChildrenMessage { RequestId = requestId, ParentSessionId = parentSessionId });
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
+
+            var result = await WaitWithTimeoutAsync(tcs, ct);
+            if (!result.Ok)
+            {
+                throw new InvalidOperationException(result.Error ?? "Failed to list child sessions");
+            }
+            return result.Sessions ?? new List<SessionSummary>();
+        }
+        finally
+        {
+            _pendingSessionsChildrenRequests.Remove(requestId);
+        }
+    }
+
     async Task ReceiveLoopAsync(ClientWebSocket socket, CancellationToken ct)
     {
         var buffer = new byte[8192];
@@ -666,6 +745,18 @@ public class ChatClientService : IAsyncDisposable
                     deleteTcs.TrySetResult(new SessionsDeleteResult(msg.Ok ?? false, msg.Error));
                 }
                 break;
+            case "sessions:spawn-result":
+                if (msg.RequestId is not null && _pendingSessionsSpawnRequests.Remove(msg.RequestId, out var spawnTcs))
+                {
+                    spawnTcs.TrySetResult(new SessionsSpawnResult(msg.Ok ?? false, msg.Error, msg.SessionId, msg.FinalText));
+                }
+                break;
+            case "sessions:children-result":
+                if (msg.RequestId is not null && _pendingSessionsChildrenRequests.Remove(msg.RequestId, out var childrenTcs))
+                {
+                    childrenTcs.TrySetResult(new SessionsListResult(msg.Ok ?? false, msg.Error, msg.Sessions));
+                }
+                break;
         }
     }
 
@@ -732,6 +823,8 @@ public class ChatClientService : IAsyncDisposable
         [JsonPropertyName("entries")] public List<FsEntry>? Entries { get; set; }
         [JsonPropertyName("roots")] public List<string>? Roots { get; set; }
         [JsonPropertyName("info")] public ServerInfo? Info { get; set; }
+        [JsonPropertyName("sessionId")] public string? SessionId { get; set; }
+        [JsonPropertyName("finalText")] public string? FinalText { get; set; }
     }
 
     class OutgoingMcpListMessage
@@ -828,6 +921,23 @@ public class ChatClientService : IAsyncDisposable
         [JsonPropertyName("mode")] public string Mode { get; set; } = "soft";
     }
 
+    class OutgoingSessionsSpawnMessage
+    {
+        [JsonPropertyName("type")] public string Type { get; set; } = "sessions:spawn";
+        [JsonPropertyName("requestId")] public string RequestId { get; set; } = string.Empty;
+        [JsonPropertyName("parentSessionId")] public string ParentSessionId { get; set; } = string.Empty;
+        [JsonPropertyName("existingSessionId")] public string? ExistingSessionId { get; set; }
+        [JsonPropertyName("cwd")] public string? Cwd { get; set; }
+        [JsonPropertyName("message")] public string? Message { get; set; }
+    }
+
+    class OutgoingSessionsChildrenMessage
+    {
+        [JsonPropertyName("type")] public string Type { get; set; } = "sessions:children";
+        [JsonPropertyName("requestId")] public string RequestId { get; set; } = string.Empty;
+        [JsonPropertyName("parentSessionId")] public string ParentSessionId { get; set; } = string.Empty;
+    }
+
     record McpResult(bool Ok, string? Error, List<McpServerSummary>? Servers, McpServerSummary? Server);
     record SessionsListResult(bool Ok, string? Error, List<SessionSummary>? Sessions);
     record SessionsHistoryResult(bool Ok, string? Error, List<SessionTurn>? Turns);
@@ -836,6 +946,7 @@ public class ChatClientService : IAsyncDisposable
     record ServerInfoResult(bool Ok, string? Error, ServerInfo? Info);
     record SessionsUpdateMetaResult(bool Ok, string? Error);
     record SessionsDeleteResult(bool Ok, string? Error);
+    record SessionsSpawnResult(bool Ok, string? Error, string? SessionId, string? FinalText);
 }
 
 public record ToolEventArgs(string Status, string Name, string? Summary, string? Detail, bool? Success);
@@ -914,6 +1025,8 @@ public class SessionSummary
     [JsonPropertyName("turnCount")] public int TurnCount { get; set; }
     [JsonPropertyName("label")] public string? Label { get; set; }
     [JsonPropertyName("archived")] public bool Archived { get; set; }
+    /// <summary>True while this session currently has a turn actively running (PBI-025's Orchestrator screen polls a child's history only while this is true).</summary>
+    [JsonPropertyName("busy")] public bool Busy { get; set; }
 
     /// <summary>Client-only: which configured ServerProfile this session came from (set locally
     /// after fetching, never sent over the wire) - lets HomePage's aggregated multi-server list tell

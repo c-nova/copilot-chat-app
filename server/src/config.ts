@@ -51,6 +51,24 @@ export interface ServerConfig {
   ntfyTopic: string;
   /** ntfy server base URL. Defaults to the public https://ntfy.sh; override to use a self-hosted instance. */
   ntfyServer: string;
+  /**
+   * PBI-026: other Copilot chat servers this one is allowed to dispatch cross-server spawn_session
+   * requests to (a small, fixed set of machines the user personally owns/trusts - not general
+   * internet peer discovery). Configured via the PEER_SERVERS env var as a JSON array, e.g.
+   * `[{"name":"windows-pc","url":"ws://192.168.1.50:5219","token":"..."}]`. Empty/unset = no peers
+   * configured (spawn_session/sessions:spawn stay local-only, same as before this PBI).
+   */
+  peers: PeerServerConfig[];
+}
+
+/** One entry from PEER_SERVERS - see ServerConfig.peers. */
+export interface PeerServerConfig {
+  /** Display name shown to the model via the list_servers MCP tool and used as spawn_session's targetServer value. */
+  name: string;
+  /** The peer server's own WebSocket URL, e.g. ws://192.168.1.50:5219 (same URL a MAUI client would use). */
+  url: string;
+  /** The peer server's own AUTH_TOKEN (not this server's) - this server connects to the peer as if it were any other client. */
+  token: string;
 }
 
 function resolveBrowseRoots(fallbackRoot: string): string[] {
@@ -116,6 +134,29 @@ function resolveInternalControlPort(): number {
   return parseInt(process.env.PORT ?? '5219', 10) + 1;
 }
 
+function resolvePeerServers(): PeerServerConfig[] {
+  const raw = process.env.PEER_SERVERS;
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err: any) {
+    console.warn(`[config] Failed to parse PEER_SERVERS as JSON, ignoring: ${err?.message ?? err}`);
+    return [];
+  }
+  if (!Array.isArray(parsed)) {
+    console.warn('[config] PEER_SERVERS must be a JSON array, ignoring.');
+    return [];
+  }
+  return parsed.filter((p): p is PeerServerConfig => {
+    if (!p || typeof p.name !== 'string' || typeof p.url !== 'string' || typeof p.token !== 'string' || !p.name || !p.url || !p.token) {
+      console.warn(`[config] Skipping invalid PEER_SERVERS entry (needs name/url/token strings): ${JSON.stringify(p)}`);
+      return false;
+    }
+    return true;
+  });
+}
+
 export const config: ServerConfig = {
   port: parseInt(process.env.PORT ?? '5219', 10),
   authToken: requireAuthToken(),
@@ -129,4 +170,5 @@ export const config: ServerConfig = {
   internalControlPort: resolveInternalControlPort(),
   ntfyTopic: process.env.NTFY_TOPIC ?? '',
   ntfyServer: (process.env.NTFY_SERVER || 'https://ntfy.sh').replace(/\/+$/, ''),
+  peers: resolvePeerServers(),
 };

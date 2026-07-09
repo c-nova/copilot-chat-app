@@ -54,6 +54,12 @@
         </CollectionView>
 
         <VerticalStackLayout Grid.Row="3" Spacing="8">
+            <HorizontalStackLayout Spacing="8" HorizontalOptions="Center">
+                <Switch x:Name="OrchestratorSwitch" />
+                <Label Text="🧩 Orchestratorとして開始(子セッションを操作できるAI)"
+                       FontSize="13"
+                       VerticalOptions="Center" />
+            </HorizontalStackLayout>
             <Button x:Name="UseCurrentFolderButton"
                     Text="✅ このフォルダで新規チャットを始める"
                     Clicked="OnUseCurrentFolderClicked"

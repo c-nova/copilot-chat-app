@@ -212,6 +212,10 @@ export interface SessionSummaryDto {
   /** Our own sidecar annotations (see sessionMeta.ts) - absent if never set. */
   label?: string;
   archived?: boolean;
+  /** True while this session currently has a turn actively running (see wsServer.ts's
+   * activeConversationTurns) - PBI-025's Orchestrator screen uses this to know when to keep
+   * polling a child session's history vs. when it's settled and can stop. Absent/false otherwise. */
+  busy?: boolean;
 }
 
 export interface SessionTurnDto {

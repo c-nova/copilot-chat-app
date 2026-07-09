@@ -126,6 +126,29 @@ server.registerTool(
 );
 
 /**
+ * PBI-026: lists the peer servers configured via PEER_SERVERS (see config.ts/peerClient.ts) that
+ * spawn_session can dispatch to via its optional targetServer parameter - names only, no
+ * URLs/tokens. An empty list just means no peers are configured (spawn_session stays local-only).
+ */
+server.registerTool(
+  'list_servers',
+  {
+    title: 'List other servers this one can dispatch to',
+    description: `Lists the names of other Copilot chat servers (e.g. a different machine/OS) that spawn_session can create a child session on via its targetServer parameter, in addition to this same machine. ${CROSS_SESSION_GUIDANCE}`,
+    inputSchema: {},
+  },
+  async () => {
+    const result = await callInternalApi('GET', '/internal/peers');
+    const peers = Array.isArray(result.peers) ? result.peers : [];
+    const names = peers.map((p: any) => p.name).filter((n: unknown): n is string => typeof n === 'string');
+    const text = names.length > 0
+      ? `Available target servers (pass one as spawn_session's targetServer to run there instead of this machine):\n${names.map((n) => `- ${n}`).join('\n')}\n\nOmit targetServer to spawn on this same machine.`
+      : 'No other servers are configured - spawn_session will always run on this same machine.';
+    return { content: [{ type: 'text' as const, text }] };
+  },
+);
+
+/**
  * PBI-025: spawns a child session under *this* session in the Orchestrator screen, as either a
  * brand-new session or an already-existing one attached for visibility. Deliberately has no
  * "parentSessionId"/"which session am I" parameter for the model to fill in - getCallerSessionId()
@@ -137,7 +160,7 @@ server.registerTool(
   'spawn_session',
   {
     title: 'Spawn a child session',
-    description: `Creates a new child session (or attaches an already-existing one) under this session for the user's Orchestrator screen, optionally dispatching it a first instruction. Use this when the user asks you to delegate/parallelize a sub-task to a worker session, or to coordinate with another session as a child of this one. ${CROSS_SESSION_GUIDANCE}`,
+    description: `Creates a new child session (or attaches an already-existing one) under this session for the user's Orchestrator screen, optionally dispatching it a first instruction. Use this when the user asks you to delegate/parallelize a sub-task to a worker session, or to coordinate with another session as a child of this one. Can target a different machine via targetServer (see list_servers) for cross-platform work (e.g. running a Windows-only command) - omit it to stay on this same machine. ${CROSS_SESSION_GUIDANCE}`,
     inputSchema: {
       existingSessionId: z
         .string()
@@ -148,17 +171,21 @@ server.registerTool(
         .string()
         .optional()
         .describe('First instruction to send the child. Required when existingSessionId is omitted - a brand-new session needs at least one message to exist.'),
+      targetServer: z
+        .string()
+        .optional()
+        .describe('Name of a peer server (from list_servers) to spawn the child on instead of this same machine - e.g. for cross-platform work. Omit to spawn locally.'),
     },
   },
-  async ({ existingSessionId, cwd, message }: { existingSessionId?: string; cwd?: string; message?: string }) => {
+  async ({ existingSessionId, cwd, message, targetServer }: { existingSessionId?: string; cwd?: string; message?: string; targetServer?: string }) => {
     const parentSessionId = getCallerSessionId();
     if (!parentSessionId) {
       throw new Error(
         'Could not determine this session\'s own id (the parent process lookup failed) - spawn_session is unavailable right now.',
       );
     }
-    const result = await callInternalApi('POST', '/internal/spawn-session', { parentSessionId, existingSessionId, cwd, message });
-    const summary = `Spawned child session ${result.sessionId}.` + (typeof result.finalText === 'string' && result.finalText ? `\nReply: ${result.finalText}` : '');
+    const result = await callInternalApi('POST', '/internal/spawn-session', { parentSessionId, existingSessionId, cwd, message, targetPeer: targetServer });
+    const summary = `Spawned child session ${result.sessionId}${targetServer ? ` on server "${targetServer}"` : ''}.` + (typeof result.finalText === 'string' && result.finalText ? `\nReply: ${result.finalText}` : '');
     return { content: [{ type: 'text' as const, text: summary }] };
   },
 );

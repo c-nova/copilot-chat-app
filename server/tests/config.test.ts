@@ -81,3 +81,51 @@ describe('config BROWSE_ROOTS resolution', () => {
     expect(config.browseRoots).toEqual([config.workDir]);
   });
 });
+
+describe('config PEER_SERVERS resolution', () => {
+  const originalPeerServers = process.env.PEER_SERVERS;
+
+  afterEach(() => {
+    if (originalPeerServers === undefined) delete process.env.PEER_SERVERS;
+    else process.env.PEER_SERVERS = originalPeerServers;
+    jest.resetModules();
+  });
+
+  it('defaults to an empty array when PEER_SERVERS is unset', () => {
+    delete process.env.PEER_SERVERS;
+    jest.resetModules();
+    const { config } = require('../src/config');
+    expect(config.peers).toEqual([]);
+  });
+
+  it('parses a valid JSON array of peer definitions', () => {
+    process.env.PEER_SERVERS = JSON.stringify([{ name: 'windows-pc', url: 'ws://192.168.1.50:5219', token: 'abc123' }]);
+    jest.resetModules();
+    const { config } = require('../src/config');
+    expect(config.peers).toEqual([{ name: 'windows-pc', url: 'ws://192.168.1.50:5219', token: 'abc123' }]);
+  });
+
+  it('skips entries missing a required field and keeps valid ones', () => {
+    process.env.PEER_SERVERS = JSON.stringify([
+      { name: 'windows-pc', url: 'ws://192.168.1.50:5219', token: 'abc123' },
+      { name: 'missing-token', url: 'ws://192.168.1.51:5219' },
+    ]);
+    jest.resetModules();
+    const { config } = require('../src/config');
+    expect(config.peers).toEqual([{ name: 'windows-pc', url: 'ws://192.168.1.50:5219', token: 'abc123' }]);
+  });
+
+  it('falls back to an empty array when PEER_SERVERS is not valid JSON', () => {
+    process.env.PEER_SERVERS = 'not json at all';
+    jest.resetModules();
+    const { config } = require('../src/config');
+    expect(config.peers).toEqual([]);
+  });
+
+  it('falls back to an empty array when PEER_SERVERS is valid JSON but not an array', () => {
+    process.env.PEER_SERVERS = JSON.stringify({ name: 'not-an-array' });
+    jest.resetModules();
+    const { config } = require('../src/config');
+    expect(config.peers).toEqual([]);
+  });
+});

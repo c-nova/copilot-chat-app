@@ -13,17 +13,19 @@ namespace CopilotChatApp.Views;
 public partial class NewChatPage : ContentPage
 {
     readonly ChatClientService _client;
+    readonly string _profileId;
     string? _currentPath;
     string? _parentPath;
     List<string> _roots = new();
 
     public ObservableCollection<FsEntry> Entries { get; } = new();
 
-    public NewChatPage(ChatClientService client)
+    public NewChatPage(ChatClientService client, string profileId)
     {
         InitializeComponent();
         BindingContext = this;
         _client = client;
+        _profileId = profileId;
     }
 
     protected override async void OnAppearing()
@@ -108,7 +110,8 @@ public partial class NewChatPage : ContentPage
     async Task StartNewChatAsync(string? cwd)
     {
         SettingsService.ResetConversation();
-        await Navigation.PushAsync(cwd is null ? new MainPage() : new MainPage(cwd));
+        Page page = OrchestratorSwitch.IsToggled ? new OrchestratorPage(cwd, _profileId) : (cwd is null ? new MainPage() : new MainPage(cwd));
+        await Navigation.PushAsync(page);
         Navigation.RemovePage(this);
     }
 }
