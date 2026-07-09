@@ -116,8 +116,8 @@ export interface ClientSessionsDeleteMessage {
  * required when `existingSessionId` is omitted (a brand-new session has no content until it gets
  * one; the CLI has no concept of an "empty" session), optional when attaching an existing session
  * (you can attach one purely for visibility, with no immediate instruction). Fails fast rather than
- * queueing if the target already has a turn actively running, same as run_turn_on_session/
- * sessions:ask before it - see wsServer.ts.
+ * queueing if the target already has a turn actively running, same as run_turn_on_session before
+ * it - see wsServer.ts.
  */
 export interface ClientSessionsSpawnMessage {
   type: 'sessions:spawn';
