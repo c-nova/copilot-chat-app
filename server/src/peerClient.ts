@@ -32,11 +32,18 @@ export function spawnOnPeer(peer: PeerServerConfig, options: PeerSpawnOptions): 
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(peer.url, { headers: { Authorization: `Bearer ${peer.token}` } });
     const requestId = `peer-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    // PBI-028 follow-up: times the whole round-trip (connect + the peer's own copilot CLI turn) so
+    // it can be compared against that peer's own `[copilotRunner] ... turn finished in Xms` log
+    // line - separates "the network/peer overhead is slow" from "the peer's copilot CLI itself is
+    // slow" (e.g. AV/EDR scanning every spawned process on a corporate-managed machine) without
+    // needing to guess next time a cross-server turn feels slow.
+    const startedAt = Date.now();
     let settled = false;
 
     const finish = (fn: () => void) => {
       if (settled) return;
       settled = true;
+      console.log(`[peerClient] spawnOnPeer to "${peer.name}" settled in ${Date.now() - startedAt}ms`);
       clearTimeout(connectTimeout);
       clearTimeout(operationTimeout);
       try {

@@ -25,15 +25,35 @@ import { execFileSync } from 'child_process';
  * simply not being a `copilot` invocation (defensive: this should never block a tool call from
  * working, it should just mean spawn_session can't auto-attribute a parent).
  */
+// PBI-028 perf fix: this process's ppid (and that parent's own argv) never changes for the
+// lifetime of this MCP subprocess, so the expensive OS lookup below only ever needs to run once -
+// but list_my_children (added in PBI-028) now calls getCallerSessionId() *in addition to*
+// spawn_session's own call, doubling how often it ran per turn. On Windows this lookup shells out
+// to powershell.exe + Get-CimInstance, which is slow on its own (process startup + a WMI query)
+// and can be much slower still on a corporate-managed machine with AV/EDR scanning every spawned
+// process - doubling it was directly responsible for a user-visible multi-minute slowdown on
+// cross-server (Windows peer) turns. `undefined` = not yet computed; `null` is a valid cached
+// "lookup failed" result that should NOT be retried (retrying wouldn't succeed differently anyway,
+// since the parent process and its argv are fixed for this subprocess's whole lifetime).
+let cachedCallerSessionId: string | null | undefined;
+
 export function getCallerSessionId(): string | null {
+  if (cachedCallerSessionId !== undefined) {
+    return cachedCallerSessionId;
+  }
   try {
     const commandLine = getParentCommandLine(process.ppid);
-    if (!commandLine) return null;
-    const match = commandLine.match(/--session-id[= ]([0-9a-fA-F-]{36})/);
-    return match ? match[1] : null;
+    const match = commandLine?.match(/--session-id[= ]([0-9a-fA-F-]{36})/);
+    cachedCallerSessionId = match ? match[1] : null;
   } catch {
-    return null;
+    cachedCallerSessionId = null;
   }
+  return cachedCallerSessionId;
+}
+
+/** Test-only: clears the memoized result so each test case can simulate a fresh subprocess. */
+export function __resetCallerSessionIdCacheForTests(): void {
+  cachedCallerSessionId = undefined;
 }
 
 function getParentCommandLine(ppid: number): string | null {

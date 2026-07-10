@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:models="clr-namespace:CopilotChatApp.Models"
     xmlns:vm="clr-namespace:CopilotChatApp.ViewModels"
+    xmlns:idk="clr-namespace:Indiko.Maui.Controls.Markdown;assembly=Indiko.Maui.Controls.Markdown"
     Title="🎼 Orchestrator">
 
     <ContentPage.ToolbarItems>
@@ -34,7 +35,23 @@
                                        FontAttributes="Bold"
                                        TextColor="#8B5E00"
                                        IsVisible="{Binding IsFromOtherSession}" />
-                                <Label Text="{Binding Text}" TextColor="#1A1A1A" LineBreakMode="WordWrap" />
+                                <idk:MarkdownView MarkdownText="{Binding Text}"
+                                                   TextFontSize="{DynamicResource ChatFontSize}"
+                                                   CodeBlockFontSize="{DynamicResource ChatFontSize}"
+                                                   H1Color="#1A1A1A"
+                                                   H2Color="#1A1A1A"
+                                                   H3Color="#1A1A1A"
+                                                   H4Color="#1A1A1A"
+                                                   H5Color="#1A1A1A"
+                                                   H6Color="#1A1A1A">
+                                    <idk:MarkdownView.CodeBlockFontFace>
+                                        <OnPlatform x:TypeArguments="x:String">
+                                            <On Platform="iOS, MacCatalyst" Value="Courier" />
+                                            <On Platform="WinUI" Value="Consolas" />
+                                            <On Platform="Android" Value="monospace" />
+                                        </OnPlatform>
+                                    </idk:MarkdownView.CodeBlockFontFace>
+                                </idk:MarkdownView>
                             </VerticalStackLayout>
                         </Border>
                     </Grid>
@@ -107,7 +124,23 @@
                                                     BackgroundColor="{Binding ., Converter={StaticResource MessageToBubbleColorConverter}}"
                                                     HorizontalOptions="{Binding IsUser, Converter={StaticResource BoolToAlignConverter}}"
                                                     MaximumWidthRequest="420">
-                                                <Label Text="{Binding Text}" TextColor="#1A1A1A" FontSize="13" LineBreakMode="WordWrap" />
+                                                <idk:MarkdownView MarkdownText="{Binding Text}"
+                                                                   TextFontSize="13"
+                                                                   CodeBlockFontSize="13"
+                                                                   H1Color="#1A1A1A"
+                                                                   H2Color="#1A1A1A"
+                                                                   H3Color="#1A1A1A"
+                                                                   H4Color="#1A1A1A"
+                                                                   H5Color="#1A1A1A"
+                                                                   H6Color="#1A1A1A">
+                                                    <idk:MarkdownView.CodeBlockFontFace>
+                                                        <OnPlatform x:TypeArguments="x:String">
+                                                            <On Platform="iOS, MacCatalyst" Value="Courier" />
+                                                            <On Platform="WinUI" Value="Consolas" />
+                                                            <On Platform="Android" Value="monospace" />
+                                                        </OnPlatform>
+                                                    </idk:MarkdownView.CodeBlockFontFace>
+                                                </idk:MarkdownView>
                                             </Border>
                                         </DataTemplate>
                                     </BindableLayout.ItemTemplate>

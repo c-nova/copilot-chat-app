@@ -1,7 +1,7 @@
 jest.mock('child_process', () => ({ execFileSync: jest.fn() }));
 
 import { execFileSync } from 'child_process';
-import { getCallerSessionId } from '../src/callerSessionId';
+import { getCallerSessionId, __resetCallerSessionIdCacheForTests } from '../src/callerSessionId';
 
 const mockExecFileSync = execFileSync as jest.Mock;
 
@@ -11,6 +11,7 @@ describe('getCallerSessionId', () => {
 
   afterEach(() => {
     jest.resetAllMocks();
+    __resetCallerSessionIdCacheForTests();
     Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
     Object.defineProperty(process, 'ppid', { value: originalPpid, configurable: true });
   });
@@ -52,5 +53,28 @@ describe('getCallerSessionId', () => {
   it('returns null for an empty/whitespace-only command line', () => {
     mockExecFileSync.mockReturnValue('   \n');
     expect(getCallerSessionId()).toBeNull();
+  });
+
+  it('memoizes the result - a second call does not re-invoke the OS lookup (PBI-028 perf fix)', () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+    Object.defineProperty(process, 'ppid', { value: 56789, configurable: true });
+    mockExecFileSync.mockReturnValue(
+      'copilot -p hi --session-id=6c2ed704-d2dc-4a6f-9e9f-3e612f865b8c --no-color\n',
+    );
+
+    expect(getCallerSessionId()).toBe('6c2ed704-d2dc-4a6f-9e9f-3e612f865b8c');
+    expect(getCallerSessionId()).toBe('6c2ed704-d2dc-4a6f-9e9f-3e612f865b8c');
+    expect(getCallerSessionId()).toBe('6c2ed704-d2dc-4a6f-9e9f-3e612f865b8c');
+    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('memoizes a failed (null) lookup too - does not retry on every call', () => {
+    mockExecFileSync.mockImplementation(() => {
+      throw new Error('ps: no such process');
+    });
+
+    expect(getCallerSessionId()).toBeNull();
+    expect(getCallerSessionId()).toBeNull();
+    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
   });
 });

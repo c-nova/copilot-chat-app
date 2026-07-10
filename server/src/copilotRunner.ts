@@ -189,6 +189,14 @@ function runCopilotTurnCore(
       windowsHide: true,
     });
 
+    // PBI-028 follow-up: a user reported cross-server (peer) turns taking multiple minutes with no
+    // way to tell whether the time went into the `copilot` CLI invocation itself (model latency,
+    // tool execution, AV/EDR scanning the spawned process on a corporate-managed machine, etc.) or
+    // somewhere else in the request chain (network, peerClient.ts, etc.). Logging how long this one
+    // CLI invocation actually took - visible in the server's own log (e.g. CopilotChatServer.log on
+    // Mac/Windows) - lets that be answered directly instead of guessing next time it happens.
+    const startedAt = Date.now();
+
     let finalText = '';
     let stdoutBuffer = '';
     let stderrBuffer = '';
@@ -263,6 +271,7 @@ function runCopilotTurnCore(
     });
 
     child.on('close', (exitCode) => {
+      console.log(`[copilotRunner] session ${sessionId} turn finished in ${Date.now() - startedAt}ms (exitCode=${exitCode})`);
       if (stdoutBuffer.trim()) {
         handleLine(stdoutBuffer.trim());
       }
