@@ -120,16 +120,25 @@
                                            FontSize="11"
                                            TextColor="Gray"
                                            IsVisible="{Binding IsCopied}" />
-                                    <!-- Extra bottom buffer scaled to the current chat font size (see
-                                         SettingsService.ChatBubbleBottomPaddingResourceKey) - MarkdownView's
-                                         custom-drawn height calculation lands about one line short
-                                         regardless of font size, so a flat pixel buffer alone stops being
-                                         enough once the user picks a larger font. A Label (not BoxView) is
-                                         used here deliberately - BoxView.Color defaults to opaque black and
-                                         rendered as a visible black bar instead of Transparent on Mac
-                                         Catalyst; Label has no separate fill color to fight with.
+                                    <!-- Extra bottom buffer scaled to the current chat font size AND the
+                                         bubble's actual available width (see BubbleConverters.cs's
+                                         MessageToBubbleBottomPaddingConverter) - MarkdownView's custom-drawn
+                                         height calculation lands short on multi-line/tabular content, and
+                                         how short depends on how much table-cell text actually wraps at the
+                                         current width, not just a flat per-font-size amount. A Label (not
+                                         BoxView) is used here deliberately - BoxView.Color defaults to
+                                         opaque black and rendered as a visible black bar instead of
+                                         Transparent on Mac Catalyst; Label has no separate fill color to
+                                         fight with.
                                     -->
-                                    <Label Text="" HeightRequest="{Binding ., Converter={StaticResource MessageToBubbleBottomPaddingConverter}}" InputTransparent="True" />
+                                    <Label Text="" InputTransparent="True">
+                                        <Label.HeightRequest>
+                                            <MultiBinding Converter="{StaticResource MessageToBubbleBottomPaddingConverter}">
+                                                <Binding Path="." />
+                                                <Binding Source="{x:Reference MessagesView}" Path="Width" Converter="{StaticResource WidthToBubbleMaxWidthConverter}" />
+                                            </MultiBinding>
+                                        </Label.HeightRequest>
+                                    </Label>
                                 </VerticalStackLayout>
                             </Frame>
                             <Label Grid.Row="1"
