@@ -9,6 +9,8 @@ public partial class MainPage : ContentPage
 {
     readonly ChatViewModel _viewModel = new();
     double _lastLaidOutFontSize = SettingsService.ChatFontSize;
+    int _scrollRequestVersion;
+    bool _immediateScrollQueued;
 
     public MainPage()
     {
@@ -36,8 +38,10 @@ public partial class MainPage : ContentPage
                     {
                         msg.PropertyChanged += (_, propArgs) =>
                         {
-                            if (propArgs.PropertyName is nameof(ChatMessage.IsSearchHighlighted) or nameof(ChatMessage.IsCopied)) return;
-                            ScrollToLatest();
+                            if (propArgs.PropertyName == nameof(ChatMessage.Text))
+                            {
+                                ScrollToLatest();
+                            }
                         };
                     }
                 }
@@ -107,9 +111,28 @@ public partial class MainPage : ContentPage
     void ScrollToLatest()
     {
         if (_viewModel.Messages.Count == 0) return;
-        MainThread.BeginInvokeOnMainThread(() => ScrollToEnd());
-        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(150), () => ScrollToEnd());
-        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(400), () => ScrollToEnd());
+        var requestVersion = ++_scrollRequestVersion;
+
+        if (!_immediateScrollQueued)
+        {
+            _immediateScrollQueued = true;
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                _immediateScrollQueued = false;
+                ScrollToEnd();
+            });
+        }
+
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(150), () => ScrollToEndIfCurrent(requestVersion));
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(400), () => ScrollToEndIfCurrent(requestVersion));
+    }
+
+    void ScrollToEndIfCurrent(int requestVersion)
+    {
+        if (requestVersion == _scrollRequestVersion)
+        {
+            ScrollToEnd();
+        }
     }
 
     void ScrollToEnd()
