@@ -124,7 +124,13 @@ public class BoolToSearchHighlightBorderConverter : IValueConverter
 public class MessageToBubbleBottomPaddingConverter : IMultiValueConverter
 {
     const double MinimalBottomPadding = 4d;
-    const double BaseRatio = 2.4;
+    /// <summary>Flat baseline buffer (fontSize-multiples) for MarkdownView's general "off by about one
+    /// line" shortfall on any multi-line content, table or not - kept deliberately small now that
+    /// EstimateExtraWrappedTableLines separately (and much more accurately) accounts for a table's own
+    /// wrapped-cell overflow. This used to be 2.4 to cover *both* cases at once, which badly
+    /// over-padded tables once the per-cell wrap estimate was added on top (double-budgeting the same
+    /// shortfall).</summary>
+    const double BaseRatio = 0.8;
     /// <summary>Rough line-height multiple (over the raw font size) used per estimated wrapped line - text lines render taller than their bare font size due to leading/line-spacing.</summary>
     const double LineHeightRatio = 1.35;
     /// <summary>Fallback per-column width (points) used when the bubble's real width isn't available (e.g. not yet laid out) - better to have *some* extra buffer than none.</summary>
