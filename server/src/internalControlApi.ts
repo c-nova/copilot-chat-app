@@ -1,8 +1,8 @@
 import * as http from 'http';
 import { config } from './config';
-import { findPeer, spawnOnPeer } from './peerClient';
-import { getSessionHistory, listSessions } from './sessionHistory';
-import { getSessionMeta, markSessionControlTurn } from './sessionMeta';
+import { findPeer, listChildrenOnPeer, spawnOnPeer } from './peerClient';
+import { getSessionHistory, getSessionSummary, listSessions } from './sessionHistory';
+import { getChildSessionIds, getSessionMeta, markSessionControlTurn } from './sessionMeta';
 import { ConversationBusyError, runConversationTurn, spawnChildSession, timingSafeEqualString } from './wsServer';
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -186,6 +186,36 @@ export function createInternalControlApi(): http.Server {
         // to build the list_servers tool's response, and that response can end up in front of the
         // model (see sessionControlMcpServer.ts).
         sendJson(res, 200, { ok: true, peers: config.peers.map((p) => ({ name: p.name })) });
+        return;
+      }
+
+      if (req.method === 'GET' && req.url?.startsWith('/internal/children')) {
+        // PBI-028: lets the session-control MCP's list_my_children tool discover sessions already
+        // spawned under the caller, so it can reuse one (via spawn_session's existingSessionId)
+        // instead of creating a brand-new child for every follow-up message - without this, the
+        // model has no way to know a suitable child already exists and ends up spawning a fresh one
+        // each time. Aggregates this server's own children (sessionMeta.ts) with every configured
+        // peer's (PBI-026) - a child spawned cross-server only ever has its parentSessionId recorded
+        // on whichever server it actually runs on, never on the parent's own server.
+        const url = new URL(req.url, 'http://localhost');
+        const parentSessionId = url.searchParams.get('parentSessionId');
+        if (!parentSessionId) {
+          sendJson(res, 400, { ok: false, error: 'parentSessionId query parameter is required' });
+          return;
+        }
+        const localChildren = getChildSessionIds(parentSessionId)
+          .map((id) => {
+            const summary = getSessionSummary(id);
+            if (!summary) return null;
+            const meta = getSessionMeta(id);
+            return { ...summary, label: meta?.label, archived: meta?.archived ?? false };
+          })
+          .filter((s): s is NonNullable<typeof s> => s !== null);
+
+        const peerResults = await Promise.allSettled(config.peers.map((peer) => listChildrenOnPeer(peer, parentSessionId)));
+        const peerChildren = peerResults.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+
+        sendJson(res, 200, { ok: true, sessions: [...localChildren, ...peerChildren] });
         return;
       }
 

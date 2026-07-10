@@ -113,7 +113,7 @@ server.registerTool(
   'run_turn_on_session',
   {
     title: 'Send a message to another session',
-    description: `Sends a message to another existing session on this server and waits for its full reply, as if you had typed it there yourself. The target session must already exist (see list_sessions) - this can't create a brand-new one. Fails immediately (rather than silently waiting) if that session currently has a turn actively running, e.g. a human is chatting with it right now via the app - if that happens, tell the user it's busy and to try again shortly, rather than retrying in a loop. ${CROSS_SESSION_GUIDANCE}`,
+    description: `Sends a message to another existing session on this SAME machine and waits for its full reply, as if you had typed it there yourself. The target session must already exist (see list_sessions/list_my_children) - this can't create a brand-new one, and it cannot reach a session on a different machine (see spawn_session's targetServer for that case - pass existingSessionId there instead). Fails immediately (rather than silently waiting) if that session currently has a turn actively running, e.g. a human is chatting with it right now via the app - if that happens, tell the user it's busy and to try again shortly, rather than retrying in a loop. ${CROSS_SESSION_GUIDANCE}`,
     inputSchema: {
       sessionId: z.string().describe('The target session id, from list_sessions'),
       message: z.string().describe('The message to send to that session'),
@@ -149,6 +149,37 @@ server.registerTool(
 );
 
 /**
+ * PBI-028: lets the model discover sessions it has *already* spawned as children of itself
+ * (locally or on any configured peer server - see internalControlApi.ts's /internal/children),
+ * so it can reuse one via spawn_session's existingSessionId instead of accidentally creating a
+ * brand-new child every time the user asks for another follow-up on "the same" worker. Before this
+ * tool existed, the model had no way to know a suitable child already existed and would spawn a
+ * fresh one for every message - this is the fix for that.
+ */
+server.registerTool(
+  'list_my_children',
+  {
+    title: 'List sessions already spawned under this one',
+    description: `Lists the sessions you (this session) have already spawned as children via spawn_session, whether they're on this machine or a different one (see list_servers). Call this BEFORE spawn_session if the user's request might continue work you already delegated - if a suitable child already exists here, pass its id as spawn_session's existingSessionId (plus its targetServer, if it's not on this machine) to continue that same conversation instead of creating a redundant new child. ${CROSS_SESSION_GUIDANCE}`,
+    inputSchema: {},
+  },
+  async () => {
+    const parentSessionId = getCallerSessionId();
+    if (!parentSessionId) {
+      throw new Error(
+        'Could not determine this session\'s own id (the parent process lookup failed) - list_my_children is unavailable right now.',
+      );
+    }
+    const result = await callInternalApi('GET', `/internal/children?parentSessionId=${encodeURIComponent(parentSessionId)}`);
+    const children = Array.isArray(result.sessions) ? result.sessions : [];
+    const text = children.length > 0
+      ? JSON.stringify(children, null, 2)
+      : 'No child sessions found - nothing has been spawned under this session yet.';
+    return { content: [{ type: 'text' as const, text }] };
+  },
+);
+
+/**
  * PBI-025: spawns a child session under *this* session in the Orchestrator screen, as either a
  * brand-new session or an already-existing one attached for visibility. Deliberately has no
  * "parentSessionId"/"which session am I" parameter for the model to fill in - getCallerSessionId()
@@ -160,21 +191,21 @@ server.registerTool(
   'spawn_session',
   {
     title: 'Spawn a child session',
-    description: `Creates a new child session (or attaches an already-existing one) under this session for the user's Orchestrator screen, optionally dispatching it a first instruction. Use this when the user asks you to delegate/parallelize a sub-task to a worker session, or to coordinate with another session as a child of this one. Can target a different machine via targetServer (see list_servers) for cross-platform work (e.g. running a Windows-only command) - omit it to stay on this same machine. ${CROSS_SESSION_GUIDANCE}`,
+    description: `Creates a new child session (or continues/attaches an already-existing one, via existingSessionId) under this session for the user's Orchestrator screen, optionally dispatching it an instruction. IMPORTANT: before creating a brand-new child, call list_my_children - if the user's request is a follow-up on something you already delegated, pass that existing child's id as existingSessionId (with message) to continue that same conversation instead of spawning a redundant new one. Use this when the user asks you to delegate/parallelize a sub-task to a worker session, or to coordinate with another session as a child of this one. Can target a different machine via targetServer (see list_servers) for cross-platform work (e.g. running a Windows-only command) - omit it to stay on this same machine. ${CROSS_SESSION_GUIDANCE}`,
     inputSchema: {
       existingSessionId: z
         .string()
         .optional()
-        .describe('Attach this already-existing session id (from list_sessions) as the child, instead of creating a brand-new one.'),
+        .describe('Continue this already-existing child session (from list_my_children) instead of creating a brand-new one - e.g. to send it a follow-up instruction.'),
       cwd: z.string().optional().describe('Working directory for a brand-new child session. Ignored when existingSessionId is set.'),
       message: z
         .string()
         .optional()
-        .describe('First instruction to send the child. Required when existingSessionId is omitted - a brand-new session needs at least one message to exist.'),
+        .describe('Instruction to send the child. Required when existingSessionId is omitted - a brand-new session needs at least one message to exist.'),
       targetServer: z
         .string()
         .optional()
-        .describe('Name of a peer server (from list_servers) to spawn the child on instead of this same machine - e.g. for cross-platform work. Omit to spawn locally.'),
+        .describe('Name of a peer server (from list_servers) to spawn/continue the child on instead of this same machine - e.g. for cross-platform work. Omit to use this same machine.'),
     },
   },
   async ({ existingSessionId, cwd, message, targetServer }: { existingSessionId?: string; cwd?: string; message?: string; targetServer?: string }) => {
@@ -185,7 +216,7 @@ server.registerTool(
       );
     }
     const result = await callInternalApi('POST', '/internal/spawn-session', { parentSessionId, existingSessionId, cwd, message, targetPeer: targetServer });
-    const summary = `Spawned child session ${result.sessionId}${targetServer ? ` on server "${targetServer}"` : ''}.` + (typeof result.finalText === 'string' && result.finalText ? `\nReply: ${result.finalText}` : '');
+    const summary = `${existingSessionId ? 'Continued' : 'Spawned'} child session ${result.sessionId}${targetServer ? ` on server "${targetServer}"` : ''}.` + (typeof result.finalText === 'string' && result.finalText ? `\nReply: ${result.finalText}` : '');
     return { content: [{ type: 'text' as const, text: summary }] };
   },
 );

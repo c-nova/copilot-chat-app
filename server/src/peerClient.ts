@@ -114,3 +114,69 @@ export function spawnOnPeer(peer: PeerServerConfig, options: PeerSpawnOptions): 
 export function findPeer(peers: PeerServerConfig[], name: string): PeerServerConfig | undefined {
   return peers.find((p) => p.name === name);
 }
+
+/** How long to wait for a peer to respond to a read-only query like sessions:children - much shorter than a spawn, since this never waits on an actual AI turn. */
+const QUERY_TIMEOUT_MS = 10_000;
+
+/**
+ * PBI-028: asks a peer server which sessions it has recorded as children of `parentSessionId` -
+ * same short-lived-connection/existing-protocol-reuse approach as spawnOnPeer, but for the
+ * read-only sessions:children query instead. Used by internalControlApi.ts's /internal/children so
+ * the session-control MCP's list_my_children tool can see children spawned cross-server (PBI-026),
+ * not just ones on this same machine.
+ */
+export function listChildrenOnPeer(peer: PeerServerConfig, parentSessionId: string): Promise<any[]> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(peer.url, { headers: { Authorization: `Bearer ${peer.token}` } });
+    const requestId = `peer-children-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let settled = false;
+
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      try {
+        ws.terminate();
+      } catch {
+        // already closed - fine
+      }
+      fn();
+    };
+
+    const timeout = setTimeout(() => {
+      finish(() => reject(new Error(`Timed out asking peer server "${peer.name}" for its children.`)));
+    }, QUERY_TIMEOUT_MS);
+
+    ws.on('open', () => {
+      ws.send(JSON.stringify({ type: 'sessions:children', requestId, parentSessionId }));
+    });
+
+    ws.on('message', (data: WebSocket.RawData) => {
+      let msg: any;
+      try {
+        msg = JSON.parse(data.toString());
+      } catch {
+        return;
+      }
+      if (msg?.type === 'error' && (msg.requestId === undefined || msg.requestId === requestId)) {
+        finish(() => reject(new Error(`Peer server "${peer.name}" rejected the request: ${msg.message ?? 'unknown error'}`)));
+        return;
+      }
+      if (msg?.type === 'sessions:children-result' && msg.requestId === requestId) {
+        if (msg.ok) {
+          finish(() => resolve(Array.isArray(msg.sessions) ? msg.sessions : []));
+        } else {
+          finish(() => reject(new Error(msg.error ?? `Peer server "${peer.name}" refused the children request.`)));
+        }
+      }
+    });
+
+    ws.on('error', (err: Error) => {
+      finish(() => reject(new Error(`Failed to reach peer server "${peer.name}" (${peer.url}): ${err.message}`)));
+    });
+
+    ws.on('close', () => {
+      finish(() => reject(new Error(`Peer server "${peer.name}" closed the connection before responding.`)));
+    });
+  });
+}

@@ -34,7 +34,7 @@ jest.mock('ws', () => {
   });
 });
 
-import { spawnOnPeer, findPeer } from '../src/peerClient';
+import { spawnOnPeer, findPeer, listChildrenOnPeer } from '../src/peerClient';
 
 const peer: PeerServerConfig = { name: 'windows-pc', url: 'ws://192.168.1.50:5219', token: 'peer-token-123' };
 
@@ -127,5 +127,61 @@ describe('findPeer', () => {
 
   it('returns undefined for an unknown name', () => {
     expect(findPeer([peer], 'nonexistent')).toBeUndefined();
+  });
+});
+
+describe('listChildrenOnPeer', () => {
+  afterEach(() => {
+    lastFakeSocket = undefined;
+    jest.clearAllMocks();
+  });
+
+  it('sends a sessions:children message and resolves with the returned sessions array', async () => {
+    const promise = listChildrenOnPeer(peer, 'parent-1');
+    await new Promise((r) => setImmediate(r));
+    const sock = lastFakeSocket!;
+    sock.emit('open');
+
+    expect(sock.sent).toHaveLength(1);
+    const sent = JSON.parse(sock.sent[0]);
+    expect(sent).toMatchObject({ type: 'sessions:children', parentSessionId: 'parent-1' });
+
+    const children = [{ id: 'child-1', summary: 'hi' }];
+    sock.emit('message', Buffer.from(JSON.stringify({ type: 'sessions:children-result', requestId: sent.requestId, ok: true, sessions: children })));
+
+    await expect(promise).resolves.toEqual(children);
+  });
+
+  it('resolves with an empty array when the peer returns no sessions field', async () => {
+    const promise = listChildrenOnPeer(peer, 'parent-1');
+    await new Promise((r) => setImmediate(r));
+    const sock = lastFakeSocket!;
+    sock.emit('open');
+    const sent = JSON.parse(sock.sent[0]);
+
+    sock.emit('message', Buffer.from(JSON.stringify({ type: 'sessions:children-result', requestId: sent.requestId, ok: true })));
+
+    await expect(promise).resolves.toEqual([]);
+  });
+
+  it('rejects when the peer responds with ok: false', async () => {
+    const promise = listChildrenOnPeer(peer, 'parent-1');
+    await new Promise((r) => setImmediate(r));
+    const sock = lastFakeSocket!;
+    sock.emit('open');
+    const sent = JSON.parse(sock.sent[0]);
+
+    sock.emit('message', Buffer.from(JSON.stringify({ type: 'sessions:children-result', requestId: sent.requestId, ok: false, error: 'nope' })));
+
+    await expect(promise).rejects.toThrow('nope');
+  });
+
+  it('rejects when the socket errors', async () => {
+    const promise = listChildrenOnPeer(peer, 'parent-1');
+    await new Promise((r) => setImmediate(r));
+    const sock = lastFakeSocket!;
+    sock.emit('error', new Error('ECONNREFUSED'));
+
+    await expect(promise).rejects.toThrow(/Failed to reach peer server "windows-pc"/);
   });
 });
