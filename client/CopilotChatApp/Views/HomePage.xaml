@@ -92,11 +92,11 @@
                             <HorizontalStackLayout Grid.Row="0" Grid.Column="0" Spacing="6">
                                 <Label Text="📦 Archived" FontSize="17" TextColor="{StaticResource Gray400}" IsVisible="{Binding Archived}" />
                                 <!-- PBI-027: at-a-glance badges for the Orchestrator screen's parent/child
-                                     relationships - "👑 親" if this session has spawned children under it,
-                                     "🔗 子" if it was itself spawned as a child of another session. Both can
+                                     relationships (🎼 theme: Conductor = has spawned children under it,
+                                     Player = was itself spawned as a child of another session). Both can
                                      theoretically be true at once (a child that itself spawned grandchildren). -->
-                                <Label Text="👑 親" FontSize="17" TextColor="{StaticResource Gray400}" IsVisible="{Binding IsOrchestratorParent}" />
-                                <Label Text="🔗 子" FontSize="17" TextColor="{StaticResource Gray400}" IsVisible="{Binding IsOrchestratorChild}" />
+                                <Label Text="🎼 Conductor" FontSize="17" TextColor="{StaticResource Gray400}" IsVisible="{Binding IsOrchestratorParent}" />
+                                <Label Text="🎻 Player" FontSize="17" TextColor="{StaticResource Gray400}" IsVisible="{Binding IsOrchestratorChild}" />
                             </HorizontalStackLayout>
                             <!-- "..." card menu: rename (label) / archive toggle. A Label with its own
                                  TapGestureRecognizer (not a Button) to match the existing tap-target

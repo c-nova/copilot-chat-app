@@ -1073,9 +1073,9 @@ public class SessionSummary
     [JsonPropertyName("orchestratorMain")] public bool OrchestratorMain { get; set; }
     /// <summary>This session's own parent session id, if it was Spawned as a child (PBI-027) - absent for ordinary top-level sessions. See ServerSummaryDto's own doc comment (protocol.ts) for why "is this a parent" is deliberately NOT sent by the server and instead computed client-side (HomePage.RefreshAsync) from this field aggregated across every configured profile.</summary>
     [JsonPropertyName("parentSessionId")] public string? ParentSessionId { get; set; }
-    /// <summary>True if this session is recorded as a child of some other session (PBI-027) - drives a "🔗 子" badge on the Home screen's session card. Always correct even cross-server (a child's own parentSessionId lives alongside it on whichever server it actually runs on).</summary>
+    /// <summary>True if this session is recorded as a child of some other session (PBI-027) - drives a "🎻 Player" badge on the Home screen's session card. Always correct even cross-server (a child's own parentSessionId lives alongside it on whichever server it actually runs on).</summary>
     [JsonPropertyName("isOrchestratorChild")] public bool IsOrchestratorChild { get; set; }
-    /// <summary>Client-only: true if *any* session across *every* configured profile currently has its ParentSessionId pointing at this session's Id (PBI-027) - computed by HomePage.RefreshAsync after aggregating all profiles, never sent over the wire. Drives the "👑 親" badge; see ParentSessionId's doc comment for why this can't be computed server-side.</summary>
+    /// <summary>Client-only: true if *any* session across *every* configured profile currently has its ParentSessionId pointing at this session's Id (PBI-027) - computed by HomePage.RefreshAsync after aggregating all profiles, never sent over the wire. Drives the "🎼 Conductor" badge; see ParentSessionId's doc comment for why this can't be computed server-side.</summary>
     public bool IsOrchestratorParent { get; set; }
 
     /// <summary>Client-only: which configured ServerProfile this session came from (set locally

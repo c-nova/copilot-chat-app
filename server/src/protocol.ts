@@ -230,7 +230,7 @@ export interface SessionSummaryDto {
    * (it only ever sees children recorded in its own sessionMeta.json).
    */
   parentSessionId?: string;
-  /** PBI-027: true if this session is recorded as a child of some other session - equivalent to `parentSessionId` being set, exposed as a convenience boolean for the "🔗 子" badge on the Home screen's session card (this one IS always correct even cross-server, since a child's own parentSessionId lives alongside it on whichever server it actually runs on). */
+  /** PBI-027: true if this session is recorded as a child of some other session - equivalent to `parentSessionId` being set, exposed as a convenience boolean for the "🎻 Player" badge on the Home screen's session card (this one IS always correct even cross-server, since a child's own parentSessionId lives alongside it on whichever server it actually runs on). */
   isOrchestratorChild?: boolean;
 }
 
