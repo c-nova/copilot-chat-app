@@ -72,6 +72,11 @@ dotnet build -f net10.0-ios                   # iOS (must be built/run on a Mac 
 - **iOS on a physical device** needs more than just `dotnet build` — a provisioning profile, a signing
   identity, and a USB-connected device with Developer Mode on. See [USAGE.md](USAGE.md#ios) for the full
   step-by-step flow (a free Apple ID "Personal Team" is enough, no paid Apple Developer Program required).
+  That free profile expires after about a week — keep the one-time dummy Xcode project you make around
+  (don't delete it) so renewing later is just "reopen it, press ▶ again", and see
+  [USAGE.md's renewal walkthrough](USAGE.md#renewing-an-expired-provisioning-profile-step-by-step) for the
+  full recovery steps (including a `sudo`-gated profile copy and a stale-profile gotcha that can otherwise
+  cause a confusing "This provisioning profile cannot be installed on this device" error).
 
 ### Quick build scripts
 
@@ -244,6 +249,11 @@ dotnet build -f net10.0-ios                   # iOS(Xcode+署名設定入りのM
 - **iOS実機デプロイ**は `dotnet build` だけでは完結しません — プロビジョニングプロファイル・署名ID・
   USB接続+デベロッパモード有効化が必要です。詳しい手順は [USAGE.md](USAGE.md#ios-1) を参照してください
   (無料のApple ID「Personal Team」で十分で、有償のApple Developer Programは不要です)。
+  この無料プロファイルは約1週間で失効します — 一度作ったダミーのXcodeプロジェクトは削除せずに残して
+  おけば、更新時は「それを再度開いて▶を押すだけ」で済みます。詳しい復旧手順(`sudo`が必要な
+  プロファイルのコピーや、「This provisioning profile cannot be installed on this device」という紛らわしい
+  エラーの原因になる期限切れプロファイルの削除など)は
+  [USAGE.mdの更新手順](USAGE.md#期限切れのプロビジョニングプロファイルを更新する詳細手順)を参照してください。
 
 ### 簡単ビルドスクリプト
 

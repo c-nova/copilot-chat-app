@@ -194,10 +194,14 @@ one-time steps that `dotnet build` alone can't do:
    - Select your iPhone/iPad as the run destination and press ▶ once — this registers the App ID and
      installs a provisioning profile on the device. Trust the developer when prompted on the device
      (Settings → General → VPN & Device Management).
-   - A free Personal Team's provisioning profile expires after about a week — just redo this step to renew it.
+   - **Don't delete this dummy project afterwards** — save it somewhere permanent outside this repo (e.g.
+     `~/Developer/ios-signing-dummy/`). A free Personal Team's provisioning profile expires after about a
+     week; to renew it, just **reopen this same dummy project** (no need to redo "New Project"/re-enter the
+     Organization Identifier) and press ▶ again with the device selected as the run destination.
 2. **Connect the device via USB.** Wi-Fi-only pairing is not reliable for `dotnet build -t:Run` (it can hang
    indefinitely waiting to install). Enable Developer Mode on the device first (Settings → Privacy & Security
-   → Developer Mode → restart to confirm), then connect with a cable.
+   → Developer Mode → restart to confirm), then connect with a cable. In Xcode's run-destination picker, a
+   device with a 🌐 globe icon next to it is network-only (not what you want here) — pick the one without it.
 3. **Find the device UDID:**
    ```bash
    xcrun xctrace list devices
@@ -230,6 +234,57 @@ handles signing/UDID selection for you.
 > `dotnet build -t:Run` stays attached and streams the device's console log until the app is closed — this is
 > normal, it's not hanging. Press Ctrl+C to detach; MSBuild will then report the launch as "failed" with an
 > MSB3073 error because `mlaunch` got killed rather than exiting cleanly, which is expected and can be ignored.
+
+#### Renewing an expired provisioning profile (step-by-step)
+
+A free Personal Team's profile is only valid for about a week, so this comes up often. After reopening the
+dummy Xcode project and pressing ▶ (step 1 above), the *new* profile does **not** automatically appear in
+`~/Library/MobileDevice/Provisioning Profiles/` — it only gets embedded inside the app Xcode just installed
+on the device. Recover it manually:
+
+1. **Find the freshly-generated profile** inside the device-install cache (adjust the date to today so you
+   pick up the new one, not an old cached copy):
+   ```bash
+   find ~/Library/Containers/com.apple.CoreDevice.CoreDeviceService -iname "embedded.mobileprovision" -newermt "2026-07-13"
+   ```
+2. **Sanity-check it** before copying anywhere — confirm the expiration date is in the future, the bundle id
+   matches, and your device's UDID is in the list:
+   ```bash
+   security cms -D -i "<path found above>" | plutil -extract ExpirationDate raw -o - -
+   security cms -D -i "<path found above>" | plutil -extract Entitlements.application-identifier raw -o - -
+   security cms -D -i "<path found above>" | plutil -extract ProvisionedDevices xml1 -o - - | grep string
+   ```
+3. **Copy it into place**, keeping the profile's own UUID as the filename (this matches how Xcode names
+   profiles it manages itself). `~/Library/MobileDevice/Provisioning Profiles/` is owned by `root` on some
+   Macs, so both the copy *and* the ownership fix need `sudo` — run this from a real terminal (not through an
+   automated/non-interactive agent) since it needs your password typed interactively:
+   ```bash
+   F="<path found in step 1>"
+   UUID=$(security cms -D -i "$F" | plutil -extract UUID raw -o - -)
+   sudo cp "$F" ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".mobileprovision
+   sudo chown $(whoami):staff ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".mobileprovision
+   ```
+4. **Delete any *expired* profiles for the same bundle id** before rebuilding. This step is easy to skip but
+   important: `-p:CodesignProvision="Automatic"` can pick a stale, already-expired profile instead of the
+   fresh one if multiple profiles exist for the same bundle id, causing a confusing failure that looks
+   unrelated to expiration:
+   ```
+   Failed to install embedded profile for com.companyname.copilotchatapp : 0xe8008012
+   (This provisioning profile cannot be installed on this device.)
+   ```
+   List every profile for this app and its expiration date, then remove the expired ones (again needs `sudo`
+   for the same reason as step 3 — the containing folder itself, not just the files, may be root-owned):
+   ```bash
+   cd ~/Library/MobileDevice/Provisioning\ Profiles/
+   for f in *.mobileprovision; do
+     bid=$(security cms -D -i "$f" 2>/dev/null | plutil -extract Entitlements.application-identifier raw -o - - 2>/dev/null)
+     [[ "$bid" == *"copilotchatapp"* ]] && echo "$f -> expires $(security cms -D -i "$f" | plutil -extract ExpirationDate raw -o - -)"
+   done
+   sudo rm -v <expired-profile-uuid-1>.mobileprovision <expired-profile-uuid-2>.mobileprovision
+   ```
+5. Now rebuild/run as usual (step 4 in the main flow above). If a previous build's output is still lying
+   around, also clear `bin/Debug/net10.0-ios` and `obj/Debug/net10.0-ios` first (see the incremental-build
+   note below) so the fresh profile actually gets embedded rather than reusing an already-signed binary.
 
 ### Quick build scripts
 
@@ -578,10 +633,15 @@ Program未加入)でも実機テストは可能ですが、`dotnet build` だけ
    - 実機(iPhone/iPad)を実行先に選んで▶を一度押す → App ID登録とプロビジョニングプロファイルの
      デバイスへのインストールが行われます。初回はデバイス側で開発者を信頼してください
      (設定 → 一般 → VPNとデバイス管理)。
-   - 無料のPersonal Teamのプロファイルは約1週間で失効するので、期限が切れたらこの手順をやり直すだけでOKです。
+   - **このダミープロジェクトは後で削除しないこと。** リポジトリの外の消えない場所(例:
+     `~/Developer/ios-signing-dummy/`)に保存しておきましょう。無料のPersonal Teamのプロファイルは
+     約1週間で失効しますが、更新するときは**同じダミープロジェクトを再度開いて**(「New Project」の
+     やり直しやOrganization Identifierの再入力は不要)、実機を実行先にして▶を押すだけでOKです。
 2. **実機をUSBケーブルで接続する。** Wi-Fiのみのペアリングだと `dotnet build -t:Run` のインストール待ちが
    無限にハングすることがあります。先にデバイス側でデベロッパモードを有効化(設定 → プライバシーとセキュリティ
-   → デベロッパモード → 再起動して確認)してから、ケーブルで接続してください。
+   → デベロッパモード → 再起動して確認)してから、ケーブルで接続してください。Xcodeの実行先ピッカーで
+   デバイス名に🌐(地球儀)アイコンが付いているものはネットワーク経由のみ(USB未認識)を意味するので、
+   アイコンが付いていない方を選んでください。
 3. **実機のUDIDを確認する:**
    ```bash
    xcrun xctrace list devices
@@ -615,6 +675,58 @@ VS側がやってくれます。
 > 続けるのが仕様で、ハングしているわけではありません)。Ctrl+Cで切断できますが、`mlaunch`が正常終了ではなく
 > 強制終了される形になるため、MSBuildはMSB3073エラーで「起動失敗」と表示します — これは想定通りの動作で
 > 気にしなくて大丈夫です。
+
+#### 期限切れのプロビジョニングプロファイルを更新する(詳細手順)
+
+無料のPersonal Teamのプロファイルは約1週間しか有効でないため、これは頻繁に発生します。ダミーのXcode
+プロジェクトを再度開いて▶を押した後(上の手順1)も、**新しいプロファイルは自動的には**
+`~/Library/MobileDevice/Provisioning Profiles/` **に反映されません** — Xcodeがデバイスにインストール
+したアプリの中に埋め込まれているだけです。手動で回収する必要があります:
+
+1. **生成されたばかりのプロファイルを探す**(実機インストール用のキャッシュ内。日付を今日に合わせて、
+   古いキャッシュではなく新しいものを取得してください):
+   ```bash
+   find ~/Library/Containers/com.apple.CoreDevice.CoreDeviceService -iname "embedded.mobileprovision" -newermt "2026-07-13"
+   ```
+2. **コピーする前に内容を確認する** — 有効期限が未来であること、Bundle IDが一致すること、対象デバイスの
+   UDIDがリストに含まれることを確認します:
+   ```bash
+   security cms -D -i "<手順1で見つけたパス>" | plutil -extract ExpirationDate raw -o - -
+   security cms -D -i "<手順1で見つけたパス>" | plutil -extract Entitlements.application-identifier raw -o - -
+   security cms -D -i "<手順1で見つけたパス>" | plutil -extract ProvisionedDevices xml1 -o - - | grep string
+   ```
+3. **正しい場所にコピーする**。ファイル名にはプロファイル自身のUUIDを使います(Xcode自身が管理する
+   プロファイルの命名規則と合わせるため)。`~/Library/MobileDevice/Provisioning Profiles/` はMacによっては
+   `root`所有になっているため、コピーと所有者変更の両方に`sudo`が必要です — パスワードを対話的に入力する
+   必要があるので、自動化/非対話型のエージェント経由ではなく実際のターミナルから実行してください:
+   ```bash
+   F="<手順1で見つけたパス>"
+   UUID=$(security cms -D -i "$F" | plutil -extract UUID raw -o - -)
+   sudo cp "$F" ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".mobileprovision
+   sudo chown $(whoami):staff ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".mobileprovision
+   ```
+4. **同じBundle IDの*期限切れ*プロファイルを削除する**(リビルド前に必ず)。見落としがちですが重要な手順です:
+   同じBundle IDのプロファイルが複数残っていると、`-p:CodesignProvision="Automatic"`が新しい有効な
+   プロファイルではなく**古い期限切れのプロファイルを誤って選んでしまう**ことがあり、一見期限切れとは
+   無関係に見える紛らわしいエラーになります:
+   ```
+   Failed to install embedded profile for com.companyname.copilotchatapp : 0xe8008012
+   (This provisioning profile cannot be installed on this device.)
+   ```
+   このアプリ向けの全プロファイルと有効期限を一覧表示し、期限切れのものを削除します(手順3と同じ理由で
+   ここも`sudo`が必要 — ファイルだけでなくフォルダ自体がroot所有の場合があるため):
+   ```bash
+   cd ~/Library/MobileDevice/Provisioning\ Profiles/
+   for f in *.mobileprovision; do
+     bid=$(security cms -D -i "$f" 2>/dev/null | plutil -extract Entitlements.application-identifier raw -o - - 2>/dev/null)
+     [[ "$bid" == *"copilotchatapp"* ]] && echo "$f -> expires $(security cms -D -i "$f" | plutil -extract ExpirationDate raw -o - -)"
+   done
+   sudo rm -v <期限切れプロファイルのUUID1>.mobileprovision <期限切れプロファイルのUUID2>.mobileprovision
+   ```
+5. あとは通常通りリビルド/実行するだけです(上の主フローの手順4)。前回のビルド成果物が残っていると、
+   新しいプロファイルが実際には埋め込まれず、署名済みの古いバイナリを使い回してしまうことがあるので、
+   気になる場合は`bin/Debug/net10.0-ios`と`obj/Debug/net10.0-ios`も先に削除してください(下の増分ビルドの
+   注記も参照)。
 
 ### 簡単ビルドスクリプト
 
