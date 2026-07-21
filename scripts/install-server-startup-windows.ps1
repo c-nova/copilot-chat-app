@@ -40,6 +40,7 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $serverDir = Join-Path $root "server"
+$serverEntryPoint = Join-Path $serverDir "dist\index.js"
 $taskName = "CopilotChatServer"
 $logFile = Join-Path $env:LOCALAPPDATA "CopilotChatServer\server.log"
 
@@ -49,16 +50,41 @@ function Write-Step($message) {
 
 $startupShortcut = Join-Path ([Environment]::GetFolderPath("Startup")) "$taskName.lnk"
 
-# Finds the actual running node.exe process(es) for THIS server (matched by command line containing
-# both dist/index.js and this repo's server folder, so it won't touch an unrelated node process
-# elsewhere on the machine) - used by -Uninstall to actually stop the server, not just remove
-# whichever auto-start mechanism (Scheduled Task or Startup shortcut) was registered. Necessary
-# because unlike the Scheduled Task case (where Stop-ScheduledTask kills its own child process),
-# the Startup-folder fallback's process isn't tracked/owned by anything after it launches - deleting
-# the .lnk alone would leave an already-running server up forever.
+# Finds the node.exe process for this server. New tasks use the absolute entry-point path, which is
+# unambiguous. The configured listening port also catches an older task that launched the relative
+# dist/index.js path and survived after Task Scheduler stopped only its parent PowerShell process.
 function Get-RunningServerProcesses {
-    Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -and $_.CommandLine -like "*dist\index.js*" -and $_.CommandLine -like "*$([regex]::Escape($serverDir))*" }
+    $processes = @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue)
+    $matchingProcesses = @($processes | Where-Object {
+        $_.CommandLine -and $_.CommandLine.Contains($serverEntryPoint, [StringComparison]::OrdinalIgnoreCase)
+    })
+
+    $port = 5219
+    $portLine = Get-Content (Join-Path $serverDir ".env") -ErrorAction SilentlyContinue |
+        Where-Object { $_ -match '^PORT=(\d+)' } |
+        Select-Object -First 1
+    $portMatch = [regex]::Match($portLine, '^PORT=(\d+)')
+    if ($portMatch.Success) {
+        $port = [int]$portMatch.Groups[1].Value
+    }
+
+    $ownerIds = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique)
+    $matchingProcesses += $processes | Where-Object { $_.ProcessId -in $ownerIds }
+    $matchingProcesses | Sort-Object ProcessId -Unique
+}
+
+function Stop-RunningServerProcesses {
+    $running = Get-RunningServerProcesses
+    if (-not $running) {
+        Write-Host "  (nothing currently running)"
+        return
+    }
+
+    foreach ($proc in $running) {
+        Write-Host "  Stopping node.exe (PID $($proc.ProcessId))..."
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+    }
 }
 
 if ($Uninstall) {
@@ -71,23 +97,14 @@ if ($Uninstall) {
     }
 
     Write-Step "Stopping the running server process, if any..."
-    $running = Get-RunningServerProcesses
-    if ($running) {
-        foreach ($proc in $running) {
-            Write-Host "  Stopping node.exe (PID $($proc.ProcessId))..."
-            Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
-        }
-    }
-    else {
-        Write-Host "  (nothing currently running)"
-    }
+    Stop-RunningServerProcesses
 
     Write-Host "Done. Log file left at $logFile if you want to keep it; delete it manually if not."
     exit 0
 }
 
 
-if (-not (Test-Path (Join-Path $serverDir "dist/index.js"))) {
+if (-not (Test-Path $serverEntryPoint)) {
     Write-Error "server/dist/index.js not found - build the server first, e.g.:`n  ./scripts/build-windows.ps1"
     exit 1
 }
@@ -106,7 +123,7 @@ New-Item -ItemType Directory -Force -Path (Split-Path -Parent $logFile) | Out-Nu
 
 # Run node via powershell.exe so stdout/stderr can be redirected to a log file (Task Scheduler /
 # a Startup shortcut don't capture a plain process's console output on their own).
-$psCommand = "Set-Location -LiteralPath '$serverDir'; & '$($node.Source)' dist/index.js *>> '$logFile'"
+$psCommand = "& '$($node.Source)' '$serverEntryPoint' *>> '$logFile'"
 $psArgs = "-NoProfile -WindowStyle Hidden -Command `"$psCommand`""
 
 function Install-StartupShortcutFallback {
@@ -129,7 +146,11 @@ function Install-StartupShortcutFallback {
 }
 
 Write-Step "Registering scheduled task '$taskName'..."
+$existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 try {
+    $existingTask | Stop-ScheduledTask -ErrorAction SilentlyContinue
+    Stop-RunningServerProcesses
+
     $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $psArgs
     $trigger = New-ScheduledTaskTrigger -AtLogOn
 
@@ -143,6 +164,9 @@ try {
         -DontStopIfGoingOnBatteries
 
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Force -ErrorAction Stop | Out-Null
+    if (Test-Path $startupShortcut) {
+        Remove-Item $startupShortcut -Force
+    }
     Write-Step "Starting it now..."
     Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
 
@@ -158,6 +182,17 @@ try {
 catch {
     Write-Host ""
     Write-Host "Couldn't register the Scheduled Task: $($_.Exception.Message)" -ForegroundColor Yellow
+    if ($existingTask) {
+        Write-Host "The existing task is still registered; restarting it instead of adding a duplicate Startup shortcut." -ForegroundColor Yellow
+        if (Test-Path $startupShortcut) {
+            Remove-Item $startupShortcut -Force
+        }
+        Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+        Write-Host "Existing scheduled task restarted. Re-run this installer from an Administrator PowerShell to update its definition." -ForegroundColor Green
+        Write-Host ""
+        Write-Host "Follow server logs: Get-Content -Wait `"$logFile`""
+        exit 0
+    }
     Write-Host "Most commonly this just means this PowerShell session isn't elevated - try closing" -ForegroundColor Yellow
     Write-Host "this window and re-running the script from an Administrator PowerShell (right-click" -ForegroundColor Yellow
     Write-Host "PowerShell -> 'Run as Administrator'). Some corporate-managed PCs restrict Task" -ForegroundColor Yellow

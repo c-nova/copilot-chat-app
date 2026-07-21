@@ -55,6 +55,8 @@ To have the server start automatically at login and restart itself if it crashes
 running in a terminal you keep open), see [USAGE.md's "Running the server persistently"
 section](USAGE.md#running-the-server-persistently-start-at-login-auto-restart) — `scripts/install-server-startup-windows.ps1`
 (Scheduled Task) and `scripts/install-server-startup-mac.sh` (LaunchAgent), no admin rights needed.
+After rebuilding the server or changing `.env`, apply it with `scripts/restart-server-windows.ps1`
+or `scripts/restart-server-mac.sh`.
 
 ## 2. Run/build the client
 
@@ -105,10 +107,15 @@ On first launch, open **Settings** and add a server:
 Tap **Save**, then go back and start chatting. Add more servers the same way (see **Multi-server support**
 below) - the Home screen aggregates sessions from every server you've added. Use **New chat** in the toolbar
 to start a fresh Copilot CLI session (it'll ask which server, if you've configured more than one).
+The model picker above the chat composer applies to subsequent turns on that chat page. Leave **Server default**
+selected to use `COPILOT_MODEL` (and the CLI default when that is unset). The selection is not persisted.
 
 ## Features
 
 - **Streaming chat** with the Copilot CLI, running in full agent mode (file edits, shell commands, MCP tools).
+- **Per-chat model selection**: the chat composer loads the signed-in account's current models from the official
+  Copilot SDK. Change models between turns without changing server settings. Model IDs are never hardcoded or
+  inferred from documentation.
 - **Multi-server support**: add multiple server profiles in Settings (e.g. one per PC/Mac you run the server
   on). The Home screen connects to every configured server in parallel and shows all their sessions together,
   each tagged with an OS glyph + server name. Tap a server's name in the summary chip at the top to filter the
@@ -231,6 +238,8 @@ npm start
 する必要をなくしたい場合)は、[USAGE.mdの「サーバーを常時起動しておく」セクション](USAGE.md#サーバーを常時起動しておくログイン時に自動起動自動再起動)
 を参照してください — `scripts/install-server-startup-windows.ps1`(Scheduled Task)と
 `scripts/install-server-startup-mac.sh`(LaunchAgent)、どちらも管理者権限は不要です。
+サーバーの再ビルドや`.env`変更後は、`scripts/restart-server-windows.ps1`または
+`scripts/restart-server-mac.sh`で反映できます。
 
 ## 2. クライアントを実行/ビルドする
 
@@ -283,10 +292,16 @@ dotnet build -f net10.0-ios                   # iOS(Xcode+署名設定入りのM
 (下記の「マルチサーバー対応」参照) — Home画面は追加した全サーバーのセッションをまとめて表示します。
 ツールバーの **New chat** で新しいCopilot CLIセッションを開始できます(サーバーを複数登録していれば、
 どのサーバーで始めるか聞かれます)。
+チャット入力欄の上にあるモデルPickerは、そのチャット画面で以降に送るturnへ適用されます。
+**Server default** のままなら `COPILOT_MODEL`、それも未設定ならCLIのデフォルトが使われます。
+選択は保存されません。
 
 ## 機能
 
 - Copilot CLI との**ストリーミングチャット**(フルエージェントモード: ファイル編集・シェルコマンド・MCPツール)
+- **チャットごとのモデル選択**: チャット入力欄で、ログイン中アカウントの最新モデル一覧を公式Copilot SDKから
+  読み込み、サーバー設定を変更せずturn間でモデルを切り替えられます。モデルIDをハードコードしたり、
+  ドキュメントの表示名から推測したりしません。
 - **マルチサーバー対応**: Settingsで複数のサーバープロファイルを追加できます(動かしているPC/Macごとに1つ)。
   Home画面は設定済みの全サーバーに並行接続し、それぞれのセッションをOSアイコン+サーバー名付きでまとめて
   表示します。上部のサマリーチップでサーバー名をタップすると、そのサーバーだけにフィルタできます

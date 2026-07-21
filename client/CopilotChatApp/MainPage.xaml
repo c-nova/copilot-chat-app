@@ -58,7 +58,7 @@
             <CollectionView x:Name="MessagesView"
                             Grid.Row="1"
                             Margin="8"
-                            ItemsUpdatingScrollMode="KeepLastItemInView"
+                            ItemsUpdatingScrollMode="KeepScrollOffset"
                             ItemSizingStrategy="MeasureAllItems"
                             ItemsSource="{Binding Messages}">
                 <CollectionView.ItemTemplate>
@@ -242,13 +242,48 @@
                 <Border.Shadow>
                     <Shadow Brush="Black" Opacity="0.10" Radius="10" Offset="0,2" />
                 </Border.Shadow>
-                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-                    <Button Grid.Column="0"
+                <Grid RowDefinitions="Auto,Auto,Auto"
+                      ColumnDefinitions="Auto,*,Auto"
+                      ColumnSpacing="8"
+                      RowSpacing="4">
+                    <Label Grid.Row="0"
+                       Grid.Column="0"
+                       Text="Model"
+                       FontSize="12"
+                       TextColor="Gray"
+                       VerticalOptions="Center" />
+                    <Picker x:Name="ChatModelPicker"
+                        Grid.Row="0"
+                        Grid.Column="1"
+                        ItemDisplayBinding="{Binding DisplayName}"
+                        SelectedIndexChanged="OnChatModelChanged"
+                        VerticalOptions="Center" />
+                    <Button x:Name="RefreshModelsButton"
+                        Grid.Row="0"
+                        Grid.Column="2"
+                        Text="↻"
+                        FontSize="20"
+                        WidthRequest="44"
+                        HeightRequest="36"
+                        Padding="0"
+                        Clicked="OnRefreshModelsClicked"
+                        ToolTipProperties.Text="Reload models" />
+                    <Label x:Name="ChatModelStatusLabel"
+                       Grid.Row="1"
+                       Grid.Column="0"
+                       Grid.ColumnSpan="3"
+                       FontSize="11"
+                       TextColor="Gray"
+                       IsVisible="False"
+                       LineBreakMode="TailTruncation" />
+                    <Button Grid.Row="2"
+                        Grid.Column="0"
                             Text="📎"
                             Clicked="OnPasteImageClicked"
                             BackgroundColor="Transparent"
                             VerticalOptions="Center" />
                     <Editor x:Name="InputEditor"
+                        Grid.Row="2"
                             Grid.Column="1"
                             Text="{Binding InputText}"
                             FontSize="{DynamicResource ChatFontSize}"
@@ -258,6 +293,7 @@
                             MinimumHeightRequest="96"
                             MaxLength="8000" />
                     <Button x:Name="SendButton"
+                            Grid.Row="2"
                             Grid.Column="2"
                             Text="Send"
                             Command="{Binding SendCommand}"

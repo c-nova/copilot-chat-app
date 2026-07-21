@@ -11,6 +11,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@github/copilot-sdk": "^1.0.7-preview.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cross-spawn": "^7.0.6",
     "dotenv": "^16.4.5",

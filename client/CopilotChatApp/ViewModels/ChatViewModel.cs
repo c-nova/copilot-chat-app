@@ -37,6 +37,9 @@ public class ChatViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public ObservableCollection<PendingAttachment> PendingAttachments { get; } = new();
 
+    /// <summary>SDK model id selected on the current chat page. Null means server default.</summary>
+    public string? SelectedModelId { get; set; }
+
     bool _hasPendingAttachments;
 
     /// <summary>True while at least one image is staged for the next message (PBI-019); drives the attachment strip's visibility.</summary>
@@ -223,7 +226,12 @@ public class ChatViewModel : INotifyPropertyChanged, IAsyncDisposable
             var wireAttachments = attachments.Count > 0
                 ? attachments.Select(a => new ChatAttachment { MimeType = a.MimeType, Data = Convert.ToBase64String(a.Bytes) }).ToList()
                 : null;
-            await _chatClient.SendChatAsync(SettingsService.ConversationId, text, wireAttachments, _pendingCwd);
+            await _chatClient.SendChatAsync(
+                SettingsService.ConversationId,
+                text,
+                wireAttachments,
+                _pendingCwd,
+                SelectedModelId);
             // Only the very first turn of a brand-new session needs cwd (the server ignores it on
             // every subsequent turn anyway, since it resumes from the session's own recorded cwd) -
             // clearing it here just avoids carrying stale state around for no reason.

@@ -7,38 +7,63 @@ namespace CopilotChatApp;
 
 public partial class MainPage : ContentPage
 {
+    static readonly ChatModelPickerOption ServerDefaultModel = new(null, "Server default (CLI default)");
     readonly ChatViewModel _viewModel = new();
     double _lastLaidOutFontSize = SettingsService.ChatFontSize;
     int _scrollRequestVersion;
-    bool _immediateScrollQueued;
+    bool _scrollDispatchQueued;
+
+    // True while the newest message should keep following the bottom. Set false as soon as the user
+    // scrolls up to read history (so streaming deltas stop yanking them back down), and restored
+    // when they scroll back to the bottom or send a new message. Distance-from-bottom below which we
+    // still count as "at the bottom" - generous so a partially-clipped last line still follows.
+    bool _autoFollowBottom = true;
+    bool _modelCatalogLoaded;
+    bool _modelCatalogLoading;
+    const double BottomFollowThreshold = 64;
 
     public MainPage()
     {
         InitializeComponent();
         BindingContext = _viewModel;
+        SetModelOptions(new[] { ServerDefaultModel }, null);
+
+        // Only a user-driven scroll changes follow mode (see OnMessagesScrolled) - programmatic
+        // scrolls always land at the bottom, and content growth doesn't move the offset, so neither
+        // flips this off.
+        MessagesView.Scrolled += OnMessagesScrolled;
 
         _viewModel.Messages.CollectionChanged += (_, e) =>
         {
             if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add)
             {
-                ScrollToLatest();
+                // A message the user just sent always re-pins to the bottom, even if they'd scrolled
+                // up to read history - they clearly want to see their new turn and its response.
+                if (e.NewItems is not null)
+                {
+                    foreach (ChatMessage msg in e.NewItems)
+                    {
+                        if (msg.IsUser) _autoFollowBottom = true;
+                    }
+                }
+
+                if (_autoFollowBottom) ScrollToLatest();
+
                 // Also scroll on every subsequent change to this message (e.g. each streamed delta
-                // appended to Text, or IsRunning flipping when a tool call completes) - otherwise the
-                // view only auto-scrolls once per new bubble and falls behind while a long streamed
-                // response or tool call is still growing.
+                // appended to Text) - but only while still following the bottom, so a user reading
+                // back through history isn't repeatedly dragged down as the response grows.
                 //
-                // IsSearchHighlighted/IsCopied are excluded: those are UI-only flags toggled well
-                // after the message is finalized (search jumping to a match, or a "Copied" flash), and
-                // treating them the same as "new content just streamed in" fought the in-chat search
-                // bar - jumping to a match (setting IsSearchHighlighted) immediately re-scrolled all
-                // the way back to the bottom instead of staying at the match.
+                // IsSearchHighlighted/IsCopied are excluded implicitly (only Text is handled): those
+                // are UI-only flags toggled well after the message is finalized (search jumping to a
+                // match, or a "Copied" flash), and treating them as "new content streamed in" fought
+                // the in-chat search bar.
                 if (e.NewItems is not null)
                 {
                     foreach (ChatMessage msg in e.NewItems)
                     {
                         msg.PropertyChanged += (_, propArgs) =>
                         {
-                            if (propArgs.PropertyName == nameof(ChatMessage.Text))
+                            if (propArgs.PropertyName == nameof(ChatMessage.Text) && _autoFollowBottom)
                             {
                                 ScrollToLatest();
                             }
@@ -48,14 +73,27 @@ public partial class MainPage : ContentPage
             }
         };
 
-        // IsWaitingForResponse flips false exactly once, the instant a turn is fully finalized
-        // (see ChatViewModel.FinalizeAssistantMessage) - a more reliable "the content is done
-        // growing" signal than reacting to individual PropertyChanged deltas, which can't tell
-        // "another delta is coming" from "this was the last one". Do one more settle-scroll here
-        // once the finalized text has had a chance to actually lay out.
+        // IsSending flips false exactly once, when a turn is fully finalized (or fails). Do one
+        // more settle-scroll once the final text has had a chance to lay out.
         _viewModel.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(ChatViewModel.IsWaitingForResponse) && !_viewModel.IsWaitingForResponse)
+            if (e.PropertyName == nameof(ChatViewModel.IsSending) && !_viewModel.IsSending && _autoFollowBottom)
+            {
+                ScrollToLatest();
+            }
+            if (e.PropertyName == nameof(ChatViewModel.IsSending))
+            {
+                UpdateModelControlsEnabled();
+            }
+        };
+
+        // Sending clears the multi-line editor and shows the working indicator, changing the
+        // message viewport height after the user bubble has been added. Re-apply the debounced
+        // scroll once that layout change reaches the CollectionView; otherwise WinUI can preserve
+        // an offset calculated against the old, taller viewport.
+        MessagesView.SizeChanged += (_, _) =>
+        {
+            if (_viewModel.IsSending && _autoFollowBottom)
             {
                 ScrollToLatest();
             }
@@ -102,29 +140,29 @@ public partial class MainPage : ContentPage
     ///
     /// ScrollTo computes its target offset from the item's *current* measured height. During streaming,
     /// PropertyChanged fires the instant a text delta is appended, but the native layout pass that grows
-    /// the cell to fit the new text happens slightly later - so the immediate ScrollTo can land a few
-    /// points short of the true bottom. Because there's a PropertyChanged event for every subsequent
-    /// delta, this self-corrects for all but the *last* chunk of a response, whose trailing sliver then
-    /// has no follow-up scroll to fix it and appears clipped by the viewport. A short follow-up ScrollTo
-    /// after the layout pass has had a chance to settle closes that gap.
+    /// the cell to fit the new text happens slightly later. Throttle those requests: WinUI can visibly
+    /// oscillate if ScrollTo runs for every streamed chunk, while a short delayed follow-up after the
+    /// final request still catches the last line after its layout has settled.
     /// </summary>
     void ScrollToLatest()
     {
         if (_viewModel.Messages.Count == 0) return;
-        var requestVersion = ++_scrollRequestVersion;
+        ++_scrollRequestVersion;
 
-        if (!_immediateScrollQueued)
+        if (_scrollDispatchQueued) return;
+
+        _scrollDispatchQueued = true;
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(75), () =>
         {
-            _immediateScrollQueued = true;
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                _immediateScrollQueued = false;
-                ScrollToEnd();
-            });
-        }
+            _scrollDispatchQueued = false;
+            ScrollToEnd();
 
-        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(150), () => ScrollToEndIfCurrent(requestVersion));
-        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(400), () => ScrollToEndIfCurrent(requestVersion));
+            var settledRequestVersion = _scrollRequestVersion;
+            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(250), () =>
+            {
+                ScrollToEndIfCurrent(settledRequestVersion);
+            });
+        });
     }
 
     void ScrollToEndIfCurrent(int requestVersion)
@@ -135,9 +173,45 @@ public partial class MainPage : ContentPage
         }
     }
 
+    /// <summary>
+    /// Updates <see cref="_autoFollowBottom"/> from user-driven scrolling. Content growth during
+    /// streaming doesn't move the offset (so it doesn't fire a delta here), and our own programmatic
+    /// scrolls always land at the bottom (recomputing to "following"), so only a real user drag away
+    /// from the bottom turns following off - and returning to the bottom turns it back on.
+    /// </summary>
+    void OnMessagesScrolled(object? sender, ItemsViewScrolledEventArgs e)
+    {
+        // Ignore extent-only notifications (offset unchanged, e.g. a cell growing mid-stream); those
+        // must not be mistaken for the user scrolling away from the bottom.
+        if (Math.Abs(e.VerticalDelta) < 0.5) return;
+        _autoFollowBottom = IsNearBottom(e);
+    }
+
+    bool IsNearBottom(ItemsViewScrolledEventArgs e)
+    {
+#if WINDOWS
+        if (TryGetNativeDistanceFromBottom(out var distance))
+        {
+            return distance <= BottomFollowThreshold;
+        }
+#endif
+        // Cross-platform fallback: treat "the last message is visible" as being at the bottom.
+        return e.LastVisibleItemIndex >= _viewModel.Messages.Count - 1;
+    }
+
     void ScrollToEnd()
     {
         if (_viewModel.Messages.Count == 0) return;
+#if WINDOWS
+        // ScrollTo(index, End) resolves its target offset from the item's realized/measured layout,
+        // which WinUI's virtualizing ItemsRepeater hasn't finished when Send simultaneously adds the
+        // user bubble, clears the editor, and shows the working indicator (all of which resize the
+        // list). That lands the scroll ~half a page short. Driving the native ScrollViewer to its
+        // absolute bottom after forcing a layout pass is independent of item realization, so it lands
+        // on the true bottom regardless of that mid-flight resize. (iOS/Mac Catalyst's UICollectionView
+        // defers scrollToItem to the next layout pass on its own, which is why it never shows this.)
+        if (TryScrollNativeToBottom()) return;
+#endif
         try
         {
             MessagesView.ScrollTo(_viewModel.Messages.Count - 1, position: ScrollToPosition.End, animate: false);
@@ -147,6 +221,56 @@ public partial class MainPage : ContentPage
             // ignore - can throw if the view isn't laid out yet
         }
     }
+
+#if WINDOWS
+    bool TryScrollNativeToBottom()
+    {
+        try
+        {
+            if (MessagesView.Handler?.PlatformView is not Microsoft.UI.Xaml.DependencyObject root) return false;
+            if (FindDescendant<Microsoft.UI.Xaml.Controls.ScrollViewer>(root) is not { } scrollViewer) return false;
+
+            // Force the pending layout (new bubble height, resized viewport) to settle so
+            // ScrollableHeight reflects the just-added content before we jump to it.
+            scrollViewer.UpdateLayout();
+            scrollViewer.ChangeView(null, scrollViewer.ScrollableHeight, null, disableAnimation: true);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    bool TryGetNativeDistanceFromBottom(out double distance)
+    {
+        distance = 0;
+        try
+        {
+            if (MessagesView.Handler?.PlatformView is not Microsoft.UI.Xaml.DependencyObject root) return false;
+            if (FindDescendant<Microsoft.UI.Xaml.Controls.ScrollViewer>(root) is not { } scrollViewer) return false;
+
+            distance = scrollViewer.ScrollableHeight - scrollViewer.VerticalOffset;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    static T? FindDescendant<T>(Microsoft.UI.Xaml.DependencyObject root) where T : Microsoft.UI.Xaml.DependencyObject
+    {
+        var childCount = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < childCount; i++)
+        {
+            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is T match) return match;
+            if (FindDescendant<T>(child) is { } nested) return nested;
+        }
+        return null;
+    }
+#endif
 
     void SetUpSubmitShortcut()
     {
@@ -196,6 +320,10 @@ public partial class MainPage : ContentPage
     {
         base.OnAppearing();
         await _viewModel.InitializeAsync();
+        if (!_modelCatalogLoaded && await SettingsService.IsConfiguredAsync())
+        {
+            await LoadModelsAsync();
+        }
 
         // Changing the chat font size in Settings updates {DynamicResource ChatFontSize} live, but
         // CollectionView's self-sizing cells on iOS/Mac Catalyst don't retroactively re-measure
@@ -214,6 +342,88 @@ public partial class MainPage : ContentPage
             MessagesView.ItemsSource = messages;
             ScrollToLatest();
         }
+    }
+
+    async void OnRefreshModelsClicked(object? sender, EventArgs e) => await LoadModelsAsync();
+
+    void OnChatModelChanged(object? sender, EventArgs e)
+    {
+        _viewModel.SelectedModelId = (ChatModelPicker.SelectedItem as ChatModelPickerOption)?.ModelId;
+    }
+
+    async Task LoadModelsAsync()
+    {
+        if (_modelCatalogLoading) return;
+        _modelCatalogLoading = true;
+        UpdateModelControlsEnabled();
+        ChatModelStatusLabel.IsVisible = true;
+        ChatModelStatusLabel.TextColor = Colors.Gray;
+        ChatModelStatusLabel.Text = "Loading models from Copilot SDK...";
+
+        try
+        {
+            if (!_viewModel.ChatClient.IsConnected)
+            {
+                await _viewModel.ChatClient.ConnectWithRetryAsync(
+                    SettingsService.ServerUrl,
+                    await SettingsService.GetAuthTokenAsync());
+            }
+
+            var selectedModelId = _viewModel.SelectedModelId;
+            var models = await _viewModel.ChatClient.ListModelsAsync();
+            var options = models
+                .Where(model => string.IsNullOrEmpty(model.Policy) || model.Policy == "enabled")
+                .Select(model => new ChatModelPickerOption(model.Id, model.Name))
+                .ToList();
+            var serverDefaultModel = ServerDefaultModel;
+            try
+            {
+                var serverInfo = await _viewModel.ChatClient.GetServerInfoAsync();
+                var configuredModelId = serverInfo.Model == "(default)" ? null : serverInfo.Model;
+                var configuredModelName = models.FirstOrDefault(model => model.Id == configuredModelId)?.Name
+                    ?? configuredModelId
+                    ?? "CLI default";
+                serverDefaultModel = new ChatModelPickerOption(null, $"Server default ({configuredModelName})");
+            }
+            catch
+            {
+                // Model selection still works when optional server metadata is unavailable.
+            }
+            options.Insert(0, serverDefaultModel);
+            SetModelOptions(options, selectedModelId);
+            _modelCatalogLoaded = true;
+            ChatModelStatusLabel.IsVisible = false;
+        }
+        catch (Exception ex)
+        {
+            if (!_modelCatalogLoaded)
+            {
+                SetModelOptions(new[] { ServerDefaultModel }, null);
+            }
+            ChatModelStatusLabel.TextColor = Colors.OrangeRed;
+            ChatModelStatusLabel.Text = $"Couldn't load models: {ex.Message}";
+        }
+        finally
+        {
+            _modelCatalogLoading = false;
+            UpdateModelControlsEnabled();
+        }
+    }
+
+    void SetModelOptions(IEnumerable<ChatModelPickerOption> options, string? selectedModelId)
+    {
+        var optionList = options.ToList();
+        ChatModelPicker.ItemsSource = optionList;
+        ChatModelPicker.SelectedItem = optionList.FirstOrDefault(option => option.ModelId == selectedModelId)
+            ?? optionList[0];
+        _viewModel.SelectedModelId = (ChatModelPicker.SelectedItem as ChatModelPickerOption)?.ModelId;
+    }
+
+    void UpdateModelControlsEnabled()
+    {
+        var enabled = !_modelCatalogLoading && !_viewModel.IsSending;
+        ChatModelPicker.IsEnabled = enabled;
+        RefreshModelsButton.IsEnabled = enabled;
     }
 
     async void OnToolTapped(object? sender, TappedEventArgs e)
@@ -355,8 +565,8 @@ public partial class MainPage : ContentPage
     /// <summary>
     /// Reads an image off the system clipboard and stages it as a pending attachment (PBI-019).
     /// MAUI's cross-platform Clipboard API only supports text, so this drops down to UIPasteboard
-    /// directly on iOS/Mac Catalyst (both are UIKit under the hood); other platforms don't have an
-    /// image-clipboard path yet. On iOS, reading a pasteboard populated by another app may trigger
+    /// directly on iOS/Mac Catalyst (both are UIKit under the hood), and WinRT's DataTransfer
+    /// clipboard API on Windows. On iOS, reading a pasteboard populated by another app may trigger
     /// the system's "Allow Paste" permission prompt - that's expected, not an error.
     /// </summary>
     async void OnPasteImageClicked(object? sender, EventArgs e)
@@ -374,6 +584,46 @@ public partial class MainPage : ContentPage
         var bytes = new byte[pngData.Length];
         System.Runtime.InteropServices.Marshal.Copy(pngData.Bytes, bytes, 0, (int)pngData.Length);
         _viewModel.AddPastedImage(bytes, "image/png");
+#elif WINDOWS
+        try
+        {
+            var content = Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
+            if (!content.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Bitmap))
+            {
+                await DisplayAlert("No image", "The clipboard doesn't contain an image.", "OK");
+                return;
+            }
+
+            var bitmapReference = await content.GetBitmapAsync();
+            using var sourceStream = await bitmapReference.OpenReadAsync();
+            var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(sourceStream);
+            using var softwareBitmap = await decoder.GetSoftwareBitmapAsync(
+                Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
+                Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied);
+            using var pngStream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+            var encoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(
+                Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId,
+                pngStream);
+            encoder.SetSoftwareBitmap(softwareBitmap);
+            await encoder.FlushAsync();
+
+            if (pngStream.Size > int.MaxValue)
+            {
+                await DisplayAlert("Image too large", "The clipboard image is too large to attach.", "OK");
+                return;
+            }
+
+            pngStream.Seek(0);
+            var bytes = new byte[(int)pngStream.Size];
+            using var reader = new Windows.Storage.Streams.DataReader(pngStream);
+            await reader.LoadAsync((uint)pngStream.Size);
+            reader.ReadBytes(bytes);
+            _viewModel.AddPastedImage(bytes, "image/png");
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlert("Paste failed", $"Couldn't read the clipboard image: {ex.Message}", "OK");
+        }
 #else
         await DisplayAlert("Not supported", "Image paste isn't available on this platform yet.", "OK");
 #endif
@@ -385,4 +635,6 @@ public partial class MainPage : ContentPage
         _viewModel.RemovePendingAttachment(attachment);
     }
 }
+
+public sealed record ChatModelPickerOption(string? ModelId, string DisplayName);
 

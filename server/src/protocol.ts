@@ -14,6 +14,8 @@ export interface ClientChatMessage {
   /** Client-generated id identifying a conversation thread. */
   conversationId: string;
   text: string;
+  /** Optional SDK model id. Omit to use COPILOT_MODEL, or the CLI default when that is unset. */
+  model?: string;
   /** Images/files pasted or attached alongside the prompt (PBI-019). */
   attachments?: AttachmentPayload[];
   /**
@@ -23,6 +25,11 @@ export interface ClientChatMessage {
    * it's rejected in favor of the default workspace directory.
    */
   cwd?: string;
+}
+
+export interface ClientModelsListMessage {
+  type: 'models:list';
+  requestId: string;
 }
 
 export interface ClientMcpListMessage {
@@ -140,6 +147,7 @@ export interface ClientSessionsChildrenMessage {
 
 export type ClientMessage =
   | ClientChatMessage
+  | ClientModelsListMessage
   | ClientMcpListMessage
   | ClientMcpAddMessage
   | ClientMcpRemoveMessage
@@ -181,6 +189,23 @@ export interface ServerToolMessage {
   summary?: string;
   detail?: string;
   success?: boolean;
+}
+
+export interface ModelCatalogEntryDto {
+  id: string;
+  name: string;
+  policy?: string;
+  supportsVision: boolean;
+  supportsReasoningEffort: boolean;
+  billingMultiplier?: number;
+}
+
+export interface ServerModelsListResultMessage {
+  type: 'models:list-result';
+  requestId: string;
+  ok: boolean;
+  models?: ModelCatalogEntryDto[];
+  error?: string;
 }
 
 export interface McpServerSummary {
@@ -351,6 +376,7 @@ export type ServerMessage =
   | ServerFinalMessage
   | ServerErrorMessage
   | ServerToolMessage
+  | ServerModelsListResultMessage
   | ServerMcpResultMessage
   | ServerSessionsListResultMessage
   | ServerSessionsHistoryResultMessage

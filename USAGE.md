@@ -51,12 +51,14 @@ and it stops. To make it start automatically and keep itself running like a real
 ```powershell
 # Windows: registers a Scheduled Task (runs at logon for the current user, restarts on crash)
 ./scripts/install-server-startup-windows.ps1
+./scripts/restart-server-windows.ps1              # restart after rebuilding or changing .env
 ./scripts/install-server-startup-windows.ps1 -Uninstall   # stop + remove
 ```
 
 ```bash
 # macOS: registers a per-user LaunchAgent (same idea, via launchd)
 ./scripts/install-server-startup-mac.sh
+./scripts/restart-server-mac.sh                    # restart after rebuilding or changing .env
 ./scripts/install-server-startup-mac.sh --uninstall   # stop + remove
 ```
 
@@ -65,6 +67,9 @@ Both need the server already built and configured first (`./scripts/build-window
 session, not a system-wide daemon, so the server starts when you log in and gets restarted
 automatically if it ever crashes. Logs go to `%LOCALAPPDATA%\CopilotChatServer\server.log` (Windows)
 or `~/Library/Logs/CopilotChatServer.log` (macOS).
+
+Rebuilding `server/dist` or editing `server/.env` does not update an already-running Node process.
+Run the platform's `restart-server-*` script afterward to load the new code or configuration.
 
 ⚠️ On corporate-managed Windows PCs, Group Policy sometimes blocks standard users (even elevated
 ones) from registering Scheduled Tasks ("Access is denied" when running the script). If that
@@ -488,12 +493,14 @@ npm start
 ```powershell
 # Windows: Scheduled Taskとして登録(現在のユーザーのログオン時に起動、クラッシュ時は自動再起動)
 ./scripts/install-server-startup-windows.ps1
+./scripts/restart-server-windows.ps1              # 再ビルドや.env変更後に再起動
 ./scripts/install-server-startup-windows.ps1 -Uninstall   # 停止+削除
 ```
 
 ```bash
 # macOS: ユーザーごとのLaunchAgentとして登録(launchd経由で同様の仕組み)
 ./scripts/install-server-startup-mac.sh
+./scripts/restart-server-mac.sh                    # 再ビルドや.env変更後に再起動
 ./scripts/install-server-startup-mac.sh --uninstall   # 停止+削除
 ```
 
@@ -503,6 +510,9 @@ npm start
 紐づく仕組みなので、ログインすると起動し、クラッシュしても自動的に再起動されます。
 ログは `%LOCALAPPDATA%\CopilotChatServer\server.log`(Windows)または
 `~/Library/Logs/CopilotChatServer.log`(macOS)に出力されます。
+
+`server/dist`を再ビルドしたり`server/.env`を変更しただけでは、実行中のNodeプロセスには
+反映されません。その後に各OSの`restart-server-*`スクリプトを実行してください。
 
 ⚠️ 会社管理のWindows PCだと、Group Policyで一般ユーザー(管理者権限で実行してもダメな
 場合あり)によるScheduled Task登録がブロックされていることがあります(実行すると

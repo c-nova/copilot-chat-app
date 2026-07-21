@@ -6,6 +6,7 @@ import { config } from './config';
 import { AttachmentInput, DeltaHandler, runCopilotTurn, ToolEventHandler, TurnResult } from './copilotRunner';
 import { gitClone, listDir } from './fsBrowser';
 import { addMcpServer, listMcpServers, removeMcpServer } from './mcpManager';
+import { listAvailableModels } from './modelCatalog';
 import { isPathAllowed } from './pathAccess';
 import { notifyReplyReady } from './notify';
 import { ClientMessage, ServerMessage } from './protocol';
@@ -97,6 +98,8 @@ export class ConversationBusyError extends Error {
 
 export interface RunConversationTurnOptions {
   attachments?: AttachmentInput[];
+  /** SDK model id for this turn. Omit to use the server's COPILOT_MODEL/CLI default. */
+  model?: string;
   /** Working directory to create a brand-new session in; ignored when resuming an existing one. */
   requestedCwd?: string;
   /**
@@ -199,6 +202,7 @@ async function runConversationTurnCore(
       options.onToolEvent ?? (() => {}),
       options.attachments,
       state.cwd,
+      options.model,
     );
   } finally {
     activeConversationTurns.delete(conversationId);
@@ -294,6 +298,16 @@ export function createChatServer(): WebSocketServer {
           send(ws, { type: 'mcp:result', requestId: msg.requestId, action: 'list', ok: true, servers });
         } catch (err: any) {
           send(ws, { type: 'mcp:result', requestId: msg.requestId, action: 'list', ok: false, error: err?.message ?? String(err) });
+        }
+        return;
+      }
+
+      if (msg.type === 'models:list') {
+        try {
+          const models = await listAvailableModels();
+          send(ws, { type: 'models:list-result', requestId: msg.requestId, ok: true, models });
+        } catch (err: any) {
+          send(ws, { type: 'models:list-result', requestId: msg.requestId, ok: false, error: err?.message ?? String(err) });
         }
         return;
       }
@@ -525,6 +539,7 @@ export function createChatServer(): WebSocketServer {
       try {
         const result = await runConversationTurn(conversationId, text, {
           attachments,
+          model: msg.model,
           requestedCwd: msg.cwd,
           onDelta: (delta) => send(ws, { type: 'delta', conversationId, text: delta }),
           onToolEvent: (toolEvent) =>

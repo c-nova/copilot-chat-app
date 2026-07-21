@@ -147,10 +147,11 @@ export async function runCopilotTurn(
   onToolEvent: ToolEventHandler,
   attachments?: AttachmentInput[],
   cwd?: string,
+  model?: string,
 ): Promise<TurnResult> {
   const tempFiles = attachments && attachments.length > 0 ? await writeTempAttachments(attachments) : [];
   try {
-    return await runCopilotTurnCore(sessionId, message, onDelta, onToolEvent, tempFiles, cwd);
+    return await runCopilotTurnCore(sessionId, message, onDelta, onToolEvent, tempFiles, cwd, model);
   } finally {
     if (tempFiles.length > 0) {
       await cleanupTempFiles(tempFiles);
@@ -165,6 +166,7 @@ function runCopilotTurnCore(
   onToolEvent: ToolEventHandler,
   attachmentPaths: string[],
   cwd?: string,
+  model?: string,
 ): Promise<TurnResult> {
   return new Promise((resolve, reject) => {
     const args = [
@@ -181,8 +183,9 @@ function runCopilotTurnCore(
     for (const attachmentPath of attachmentPaths) {
       args.push('--attachment', attachmentPath);
     }
-    if (config.model) {
-      args.push('--model', config.model);
+    const effectiveModel = model || config.model;
+    if (effectiveModel) {
+      args.push('--model', effectiveModel);
     }
 
     const child = spawn(config.copilotCommand, args, {

@@ -43,7 +43,7 @@ describe('runConversationTurn', () => {
     // so the requested path needs to be a subfolder of workDir to be considered "allowed" here.
     const cwd = path.join(config.workDir, 'some-subfolder');
     await runConversationTurn(id, 'hello', { requestedCwd: cwd });
-    expect(mockedRunCopilotTurn).toHaveBeenCalledWith(id, 'hello', expect.any(Function), expect.any(Function), undefined, cwd);
+    expect(mockedRunCopilotTurn).toHaveBeenCalledWith(id, 'hello', expect.any(Function), expect.any(Function), undefined, cwd, undefined);
   });
 
   it('falls back to the default workDir when the requested cwd is outside the allowed roots', async () => {
@@ -57,6 +57,7 @@ describe('runConversationTurn', () => {
       expect.any(Function),
       undefined,
       config.workDir,
+      undefined,
     );
   });
 
@@ -72,6 +73,22 @@ describe('runConversationTurn', () => {
       expect.any(Function),
       undefined,
       existingCwd,
+      undefined,
+    );
+  });
+
+  it('passes a per-request model override to the CLI runner', async () => {
+    mockedGetSessionCwd.mockReturnValue(null);
+    const id = uniqueId('model-override');
+    await runConversationTurn(id, 'hello', { model: 'gpt-5.4' });
+    expect(mockedRunCopilotTurn).toHaveBeenCalledWith(
+      id,
+      'hello',
+      expect.any(Function),
+      expect.any(Function),
+      undefined,
+      config.workDir,
+      'gpt-5.4',
     );
   });
 

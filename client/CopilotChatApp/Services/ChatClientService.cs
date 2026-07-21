@@ -13,6 +13,7 @@ public class ChatClientService : IAsyncDisposable
     Task? _receiveLoopTask;
     CancellationTokenSource? _backgroundConnectCts;
     readonly Dictionary<string, TaskCompletionSource<McpResult>> _pendingMcpRequests = new();
+    readonly Dictionary<string, TaskCompletionSource<ModelsListResult>> _pendingModelsListRequests = new();
     readonly Dictionary<string, TaskCompletionSource<SessionsListResult>> _pendingSessionsListRequests = new();
     readonly Dictionary<string, TaskCompletionSource<SessionsListResult>> _pendingSessionsSearchRequests = new();
     readonly Dictionary<string, TaskCompletionSource<SessionsHistoryResult>> _pendingSessionsHistoryRequests = new();
@@ -32,6 +33,7 @@ public class ChatClientService : IAsyncDisposable
     public event Action<ToolEventArgs>? OnToolEvent;
 
     public bool IsConnected => _socket?.State == WebSocketState.Open;
+    public string? ConnectedServerUrl { get; private set; }
 
     public async Task ConnectAsync(string serverUrl, string authToken, CancellationToken ct = default)
     {
@@ -43,6 +45,7 @@ public class ChatClientService : IAsyncDisposable
         var uri = new Uri(serverUrl);
         await socket.ConnectAsync(uri, ct);
         _socket = socket;
+        ConnectedServerUrl = serverUrl;
         OnConnectionChanged?.Invoke(true);
 
         // A successful connection - whether from a foreground ConnectWithRetryAsync call or from the
@@ -132,6 +135,43 @@ public class ChatClientService : IAsyncDisposable
         return result.Servers ?? new List<McpServerSummary>();
     }
 
+    public async Task<List<CopilotModelInfo>> ListModelsAsync(CancellationToken ct = default)
+    {
+        if (_socket is null || _socket.State != WebSocketState.Open)
+        {
+            throw new InvalidOperationException("Not connected to server.");
+        }
+
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<ModelsListResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingModelsListRequests[requestId] = tcs;
+        try
+        {
+            var payload = JsonSerializer.Serialize(new OutgoingModelsListMessage { RequestId = requestId });
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
+
+            ModelsListResult result;
+            try
+            {
+                result = await WaitWithTimeoutAsync(tcs, ct, ModelCatalogTimeout);
+            }
+            catch (TimeoutException ex)
+            {
+                throw new TimeoutException("Copilot SDK did not return the model catalog within 60 seconds. Reload models to try again.", ex);
+            }
+            if (!result.Ok)
+            {
+                throw new InvalidOperationException(result.Error ?? "Failed to list models");
+            }
+            return result.Models ?? new List<CopilotModelInfo>();
+        }
+        finally
+        {
+            _pendingModelsListRequests.Remove(requestId);
+        }
+    }
+
     public Task<McpServerSummary?> AddMcpServerAsync(
         string name,
         string transport,
@@ -202,6 +242,7 @@ public class ChatClientService : IAsyncDisposable
     /// via ConnectWithRetryAsync instead of reusing the same dead socket.
     /// </summary>
     static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(15);
+    static readonly TimeSpan ModelCatalogTimeout = TimeSpan.FromSeconds(60);
 
     public async Task<List<SessionSummary>> ListSessionsAsync(CancellationToken ct = default)
     {
@@ -301,9 +342,9 @@ public class ChatClientService : IAsyncDisposable
     /// own cancellation token. On timeout, force-disconnects (see remarks on RequestTimeout above)
     /// so a stale, silently-blocked socket doesn't keep failing every subsequent attempt the same way.
     /// </summary>
-    async Task<T> WaitWithTimeoutAsync<T>(TaskCompletionSource<T> tcs, CancellationToken ct)
+    async Task<T> WaitWithTimeoutAsync<T>(TaskCompletionSource<T> tcs, CancellationToken ct, TimeSpan? timeout = null)
     {
-        using var timeoutCts = new CancellationTokenSource(RequestTimeout);
+        using var timeoutCts = new CancellationTokenSource(timeout ?? RequestTimeout);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
         using var reg = linkedCts.Token.Register(() => tcs.TrySetCanceled());
 
@@ -318,7 +359,7 @@ public class ChatClientService : IAsyncDisposable
         }
     }
 
-    public async Task SendChatAsync(string conversationId, string text, List<ChatAttachment>? attachments = null, string? cwd = null, CancellationToken ct = default)
+    public async Task SendChatAsync(string conversationId, string text, List<ChatAttachment>? attachments = null, string? cwd = null, string? model = null, CancellationToken ct = default)
     {
         if (_socket is null || _socket.State != WebSocketState.Open)
         {
@@ -331,7 +372,8 @@ public class ChatClientService : IAsyncDisposable
             ConversationId = conversationId,
             Text = text,
             Attachments = attachments is { Count: > 0 } ? attachments : null,
-            Cwd = cwd
+            Cwd = cwd,
+            Model = string.IsNullOrWhiteSpace(model) ? null : model,
         });
         var bytes = Encoding.UTF8.GetBytes(payload);
         await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
@@ -719,6 +761,20 @@ public class ChatClientService : IAsyncDisposable
                 OnFinal?.Invoke(msg.Text ?? string.Empty);
                 break;
             case "error":
+                if (_pendingModelsListRequests.Count > 0
+                    && msg.Message?.Contains("Expected { type: \"chat\", conversationId, text }", StringComparison.Ordinal) == true)
+                {
+                    var pendingRequests = _pendingModelsListRequests.Values.ToArray();
+                    _pendingModelsListRequests.Clear();
+                    foreach (var pendingRequest in pendingRequests)
+                    {
+                        pendingRequest.TrySetResult(new ModelsListResult(
+                            false,
+                            "This server is running an older build that does not support model selection. Restart it with the latest server build.",
+                            null));
+                    }
+                    break;
+                }
                 OnError?.Invoke(msg.Message ?? "Unknown server error");
                 break;
             case "tool":
@@ -728,6 +784,12 @@ public class ChatClientService : IAsyncDisposable
                 if (msg.RequestId is not null && _pendingMcpRequests.Remove(msg.RequestId, out var tcs))
                 {
                     tcs.TrySetResult(new McpResult(msg.Ok ?? false, msg.Error, msg.Servers, msg.Server));
+                }
+                break;
+            case "models:list-result":
+                if (msg.RequestId is not null && _pendingModelsListRequests.Remove(msg.RequestId, out var modelsListTcs))
+                {
+                    modelsListTcs.TrySetResult(new ModelsListResult(msg.Ok ?? false, msg.Error, msg.Models));
                 }
                 break;
             case "sessions:list-result":
@@ -809,6 +871,7 @@ public class ChatClientService : IAsyncDisposable
         }
         _socket?.Dispose();
         _socket = null;
+        ConnectedServerUrl = null;
 
         if (_receiveLoopTask is not null)
         {
@@ -831,6 +894,7 @@ public class ChatClientService : IAsyncDisposable
         [JsonPropertyName("text")] public string Text { get; set; } = string.Empty;
         [JsonPropertyName("attachments")] public List<ChatAttachment>? Attachments { get; set; }
         [JsonPropertyName("cwd")] public string? Cwd { get; set; }
+        [JsonPropertyName("model")] public string? Model { get; set; }
     }
 
     class IncomingServerMessage
@@ -849,6 +913,7 @@ public class ChatClientService : IAsyncDisposable
         [JsonPropertyName("error")] public string? Error { get; set; }
         [JsonPropertyName("servers")] public List<McpServerSummary>? Servers { get; set; }
         [JsonPropertyName("server")] public McpServerSummary? Server { get; set; }
+        [JsonPropertyName("models")] public List<CopilotModelInfo>? Models { get; set; }
         [JsonPropertyName("sessions")] public List<SessionSummary>? Sessions { get; set; }
         [JsonPropertyName("turns")] public List<SessionTurn>? Turns { get; set; }
         [JsonPropertyName("path")] public string? Path { get; set; }
@@ -863,6 +928,12 @@ public class ChatClientService : IAsyncDisposable
     class OutgoingMcpListMessage
     {
         [JsonPropertyName("type")] public string Type { get; set; } = "mcp:list";
+        [JsonPropertyName("requestId")] public string RequestId { get; set; } = string.Empty;
+    }
+
+    class OutgoingModelsListMessage
+    {
+        [JsonPropertyName("type")] public string Type { get; set; } = "models:list";
         [JsonPropertyName("requestId")] public string RequestId { get; set; } = string.Empty;
     }
 
@@ -981,6 +1052,7 @@ public class ChatClientService : IAsyncDisposable
     }
 
     record McpResult(bool Ok, string? Error, List<McpServerSummary>? Servers, McpServerSummary? Server);
+    record ModelsListResult(bool Ok, string? Error, List<CopilotModelInfo>? Models);
     record SessionsListResult(bool Ok, string? Error, List<SessionSummary>? Sessions);
     record SessionsHistoryResult(bool Ok, string? Error, List<SessionTurn>? Turns);
     public record FsListDirResult(bool Ok, string? Error, string? Path, string? ParentPath, List<FsEntry>? Entries, List<string>? Roots);
@@ -992,6 +1064,16 @@ public class ChatClientService : IAsyncDisposable
 }
 
 public record ToolEventArgs(string Status, string Name, string? Summary, string? Detail, bool? Success);
+
+public class CopilotModelInfo
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
+    [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+    [JsonPropertyName("policy")] public string? Policy { get; set; }
+    [JsonPropertyName("supportsVision")] public bool SupportsVision { get; set; }
+    [JsonPropertyName("supportsReasoningEffort")] public bool SupportsReasoningEffort { get; set; }
+    [JsonPropertyName("billingMultiplier")] public double? BillingMultiplier { get; set; }
+}
 
 /// <summary>A folder or file entry returned by fs:list-dir (folders only, in practice - see server/src/fsBrowser.ts).</summary>
 public class FsEntry
