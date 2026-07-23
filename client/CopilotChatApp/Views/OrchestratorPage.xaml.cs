@@ -13,6 +13,13 @@ namespace CopilotChatApp.Views;
 public partial class OrchestratorPage : ContentPage
 {
     readonly OrchestratorViewModel _viewModel;
+    int _mainScrollRequestVersion;
+    int _childrenScrollRequestVersion;
+    bool _mainScrollDispatchQueued;
+    bool _childrenScrollDispatchQueued;
+    bool _mainAutoFollowBottom = true;
+    bool _childrenAutoFollowBottom = true;
+    const double BottomFollowThreshold = 64;
 
     /// <summary>Opens the Orchestrator screen for an already-existing (resumed) main session on <paramref name="mainProfileId"/>.</summary>
     public OrchestratorPage(SessionSummary mainSession, List<SessionTurn> mainTurns, string mainProfileId)
@@ -20,6 +27,7 @@ public partial class OrchestratorPage : ContentPage
         InitializeComponent();
         _viewModel = new OrchestratorViewModel(mainSession, mainTurns, mainProfileId);
         BindingContext = _viewModel;
+        SetUpAutoScroll();
 #if WINDOWS
         SetUpSubmitShortcut();
 #elif MACCATALYST
@@ -39,6 +47,7 @@ public partial class OrchestratorPage : ContentPage
         InitializeComponent();
         _viewModel = new OrchestratorViewModel(cwd, mainProfileId);
         BindingContext = _viewModel;
+        SetUpAutoScroll();
 #if WINDOWS
         SetUpSubmitShortcut();
 #elif MACCATALYST
@@ -51,6 +60,230 @@ public partial class OrchestratorPage : ContentPage
         };
 #endif
     }
+
+    void SetUpAutoScroll()
+    {
+        MainMessagesView.Scrolled += OnMainMessagesScrolled;
+        ChildrenScrollView.Scrolled += OnChildrenScrolled;
+
+        foreach (var message in _viewModel.MainChat.Messages)
+        {
+            SubscribeToMainMessage(message);
+        }
+        _viewModel.MainChat.Messages.CollectionChanged += (_, e) =>
+        {
+            if (e.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Add) return;
+            if (e.NewItems is not null)
+            {
+                foreach (ChatMessage message in e.NewItems)
+                {
+                    if (message.IsUser) _mainAutoFollowBottom = true;
+                    SubscribeToMainMessage(message);
+                }
+            }
+            if (_mainAutoFollowBottom) ScrollMainToLatest();
+        };
+
+        _viewModel.MainChat.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ChatViewModel.IsSending)
+                && !_viewModel.MainChat.IsSending
+                && _mainAutoFollowBottom)
+            {
+                ScrollMainToLatest();
+            }
+        };
+        MainMessagesView.SizeChanged += (_, _) =>
+        {
+            if (_viewModel.MainChat.IsSending && _mainAutoFollowBottom)
+            {
+                ScrollMainToLatest();
+            }
+        };
+
+        foreach (var pane in _viewModel.Children)
+        {
+            SubscribeToChildPane(pane);
+        }
+        _viewModel.Children.CollectionChanged += (_, e) =>
+        {
+            if (e.NewItems is not null)
+            {
+                foreach (ChildSessionPaneViewModel pane in e.NewItems)
+                {
+                    SubscribeToChildPane(pane);
+                }
+            }
+            if (_childrenAutoFollowBottom) ScrollChildrenToLatest();
+        };
+    }
+
+    void SubscribeToMainMessage(ChatMessage message)
+    {
+        message.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ChatMessage.Text) && _mainAutoFollowBottom)
+            {
+                ScrollMainToLatest();
+            }
+        };
+    }
+
+    void SubscribeToChildPane(ChildSessionPaneViewModel pane)
+    {
+        pane.Messages.CollectionChanged += (_, _) =>
+        {
+            if (_childrenAutoFollowBottom) ScrollChildrenToLatest();
+        };
+        pane.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ChildSessionPaneViewModel.IsBusy) && _childrenAutoFollowBottom)
+            {
+                ScrollChildrenToLatest();
+            }
+        };
+    }
+
+    void OnMainMessagesScrolled(object? sender, ItemsViewScrolledEventArgs e)
+    {
+        if (Math.Abs(e.VerticalDelta) < 0.5) return;
+#if WINDOWS
+        if (TryGetNativeDistanceFromBottom(MainMessagesView, out var distance))
+        {
+            _mainAutoFollowBottom = distance <= BottomFollowThreshold;
+            return;
+        }
+#endif
+        _mainAutoFollowBottom = e.LastVisibleItemIndex >= _viewModel.MainChat.Messages.Count - 1;
+    }
+
+    void OnChildrenScrolled(object? sender, ScrolledEventArgs e)
+    {
+#if WINDOWS
+        if (TryGetNativeDistanceFromBottom(ChildrenScrollView, out var distance))
+        {
+            _childrenAutoFollowBottom = distance <= BottomFollowThreshold;
+            return;
+        }
+#endif
+        var distanceFromBottom = ChildrenScrollView.ContentSize.Height
+            - ChildrenScrollView.Height
+            - e.ScrollY;
+        _childrenAutoFollowBottom = distanceFromBottom <= BottomFollowThreshold;
+    }
+
+    void ScrollMainToLatest()
+    {
+        if (_viewModel.MainChat.Messages.Count == 0) return;
+        ++_mainScrollRequestVersion;
+        if (_mainScrollDispatchQueued) return;
+        _mainScrollDispatchQueued = true;
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(75), () =>
+        {
+            _mainScrollDispatchQueued = false;
+            ScrollMainToEnd();
+            var settledRequestVersion = _mainScrollRequestVersion;
+            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(250), () =>
+            {
+                if (settledRequestVersion == _mainScrollRequestVersion) ScrollMainToEnd();
+            });
+        });
+    }
+
+    void ScrollChildrenToLatest()
+    {
+        ++_childrenScrollRequestVersion;
+        if (_childrenScrollDispatchQueued) return;
+        _childrenScrollDispatchQueued = true;
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(75), () =>
+        {
+            _childrenScrollDispatchQueued = false;
+            ScrollChildrenToEnd();
+            var settledRequestVersion = _childrenScrollRequestVersion;
+            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(250), () =>
+            {
+                if (settledRequestVersion == _childrenScrollRequestVersion) ScrollChildrenToEnd();
+            });
+        });
+    }
+
+    void ScrollMainToEnd()
+    {
+        if (_viewModel.MainChat.Messages.Count == 0) return;
+#if WINDOWS
+        if (TryScrollNativeToBottom(MainMessagesView)) return;
+#endif
+        try
+        {
+            MainMessagesView.ScrollTo(
+                _viewModel.MainChat.Messages.Count - 1,
+                position: ScrollToPosition.End,
+                animate: false);
+        }
+        catch
+        {
+            // The view may not be laid out yet.
+        }
+    }
+
+    void ScrollChildrenToEnd()
+    {
+#if WINDOWS
+        if (TryScrollNativeToBottom(ChildrenScrollView)) return;
+#endif
+        _ = ChildrenScrollView.ScrollToAsync(0, ChildrenScrollView.ContentSize.Height, false);
+    }
+
+#if WINDOWS
+    static bool TryScrollNativeToBottom(VisualElement view)
+    {
+        try
+        {
+            if (view.Handler?.PlatformView is not Microsoft.UI.Xaml.DependencyObject root) return false;
+            var scrollViewer = root as Microsoft.UI.Xaml.Controls.ScrollViewer
+                ?? FindDescendant<Microsoft.UI.Xaml.Controls.ScrollViewer>(root);
+            if (scrollViewer is null) return false;
+            scrollViewer.UpdateLayout();
+            scrollViewer.ChangeView(null, scrollViewer.ScrollableHeight, null, disableAnimation: true);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    static bool TryGetNativeDistanceFromBottom(VisualElement view, out double distance)
+    {
+        distance = 0;
+        try
+        {
+            if (view.Handler?.PlatformView is not Microsoft.UI.Xaml.DependencyObject root) return false;
+            var scrollViewer = root as Microsoft.UI.Xaml.Controls.ScrollViewer
+                ?? FindDescendant<Microsoft.UI.Xaml.Controls.ScrollViewer>(root);
+            if (scrollViewer is null) return false;
+            distance = scrollViewer.ScrollableHeight - scrollViewer.VerticalOffset;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    static T? FindDescendant<T>(Microsoft.UI.Xaml.DependencyObject root)
+        where T : Microsoft.UI.Xaml.DependencyObject
+    {
+        var childCount = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (var index = 0; index < childCount; index++)
+        {
+            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, index);
+            if (child is T match) return match;
+            if (FindDescendant<T>(child) is { } nested) return nested;
+        }
+        return null;
+    }
+#endif
 
     /// <summary>Ctrl+Enter (Windows) / Cmd+Enter (Mac Catalyst) submits the main session's message -
     /// mirrors MainPage.SetUpSubmitShortcut so the shortcut behaves identically on both chat screens.</summary>
@@ -97,6 +330,8 @@ public partial class OrchestratorPage : ContentPage
         await _viewModel.MainChat.InitializeAsync();
         await _viewModel.MarkAsOrchestratorMainAsync();
         await _viewModel.RefreshChildrenAsync();
+        ScrollMainToLatest();
+        ScrollChildrenToLatest();
         _viewModel.StartPolling();
     }
 

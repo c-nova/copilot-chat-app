@@ -17,9 +17,10 @@
         <!-- Main session - the only pane a human ever types into directly. Child sessions below are
              driven exclusively by this session's AI (run_turn_on_session/spawn_session) - see
              PBI.md's PBI-025 design notes for why there's no input box on the child panes. -->
-        <CollectionView Grid.Row="0"
+        <CollectionView x:Name="MainMessagesView"
+                Grid.Row="0"
                         Margin="8"
-                        ItemsUpdatingScrollMode="KeepLastItemInView"
+                ItemsUpdatingScrollMode="KeepScrollOffset"
                         ItemsSource="{Binding MainChat.Messages}">
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="models:ChatMessage">
@@ -104,7 +105,7 @@
         <!-- Child session panes: read-only logs, ordered oldest-spawned first. Each pane is its own
              non-scrolling stack (BindableLayout, not CollectionView) so nesting it inside this outer
              ScrollView doesn't create the classic "scrollable inside scrollable" gesture conflict. -->
-        <ScrollView Grid.Row="4">
+        <ScrollView x:Name="ChildrenScrollView" Grid.Row="4">
             <VerticalStackLayout Spacing="4" Padding="8" BindableLayout.ItemsSource="{Binding Children}">
                 <BindableLayout.ItemTemplate>
                     <DataTemplate x:DataType="vm:ChildSessionPaneViewModel">
