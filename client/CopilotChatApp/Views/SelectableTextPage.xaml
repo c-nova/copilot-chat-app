@@ -17,6 +17,7 @@
         <Editor x:Name="TextEditor"
                 Grid.Row="1"
                 IsReadOnly="True"
+                FontSize="{DynamicResource ChatFontSize}"
                 BackgroundColor="Transparent" />
     </Grid>
 

@@ -324,6 +324,14 @@ public partial class OrchestratorPage : ContentPage
 #endif
     }
 
+    async void OnSelectTextTapped(object? sender, TappedEventArgs e)
+    {
+        if (sender is not Element element || element.BindingContext is not ChatMessage message) return;
+        if (string.IsNullOrEmpty(message.Text)) return;
+
+        await Navigation.PushAsync(new SelectableTextPage(message.Text));
+    }
+
     protected override async void OnAppearing()
     {
         base.OnAppearing();
