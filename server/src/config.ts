@@ -1,7 +1,7 @@
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
 import * as path from 'path';
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 
 export interface ServerConfig {
   port: number;

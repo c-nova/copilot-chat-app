@@ -5,6 +5,16 @@
 // purely by whatever this file explicitly sets on process.env.
 jest.mock('dotenv', () => ({ config: jest.fn() }));
 
+describe('config dotenv loading', () => {
+  it('loads server/.env independently of the process working directory', () => {
+    jest.resetModules();
+    const dotenv = require('dotenv');
+    require('../src/config');
+
+    expect(dotenv.config).toHaveBeenCalledWith({ path: require('path').resolve(__dirname, '..', '.env') });
+  });
+});
+
 describe('config AUTH_TOKEN validation', () => {
   const originalAuthToken = process.env.AUTH_TOKEN;
 
