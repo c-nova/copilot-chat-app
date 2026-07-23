@@ -275,9 +275,9 @@ public partial class HomePage : ContentPage
 
     async Task OpenSessionAsync(SessionSummary session)
     {
-        // PBI-027: a session that was ever opened as an Orchestrator "main" session reopens there
-        // again, rather than the plain chat screen, so the user doesn't have to re-pick every time.
-        if (session.OrchestratorMain)
+        // Reopen an Orchestrator main there only while it currently has children. Once all children
+        // are gone, it behaves like a regular standalone session again.
+        if (session.OrchestratorMain && session.IsOrchestratorParent)
         {
             await OpenOrchestratorAsync(session);
             return;
