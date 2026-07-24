@@ -22,6 +22,3 @@ client/**/obj/
 
 # Editor
 .vscode/
-
-# Local backlog / working notes (not for commit)
-PBI.md
