@@ -11,7 +11,7 @@ import { isPathAllowed } from './pathAccess';
 import { notifyReplyReady } from './notify';
 import { ClientMessage, ServerMessage } from './protocol';
 import { deleteSessionHard, getSessionCwd, getSessionHistory, getSessionSummary, listSessions, searchSessions } from './sessionHistory';
-import { deleteSessionMeta, getAllSessionMeta, getChildSessionIds, getSessionMeta, markSessionControlTurn, setSessionArchived, setSessionLabel, setSessionOrchestratorMain, setSessionParent } from './sessionMeta';
+import { deleteSessionMeta, getAllSessionMeta, getChildSessionIds, getSessionMeta, markSessionControlTurn, PersistedToolActivity, setSessionArchived, setSessionLabel, setSessionOrchestratorMain, setSessionParent, setTurnToolActivities } from './sessionMeta';
 import { getServerInfo } from './serverInfo';
 
 /**
@@ -194,16 +194,38 @@ async function runConversationTurnCore(
   }
 
   activeConversationTurns.add(conversationId);
+  const toolActivities: PersistedToolActivity[] = [];
+  const toolActivityIndexes = new Map<string, number>();
+  const handleToolEvent: ToolEventHandler = (event) => {
+    options.onToolEvent?.(event);
+    if (event.status === 'start') {
+      toolActivityIndexes.set(event.toolCallId, toolActivities.length);
+      toolActivities.push({ name: event.name, summary: event.summary, detail: event.detail });
+      return;
+    }
+    const index = toolActivityIndexes.get(event.toolCallId);
+    if (index !== undefined) {
+      toolActivities[index] = { ...toolActivities[index], success: event.success };
+    } else {
+      toolActivities.push({ name: event.name, detail: event.detail, success: event.success });
+    }
+  };
   try {
-    return await runCopilotTurn(
+    const result = await runCopilotTurn(
       state.sessionId,
       text,
       options.onDelta ?? (() => {}),
-      options.onToolEvent ?? (() => {}),
+      handleToolEvent,
       options.attachments,
       state.cwd,
       options.model,
     );
+    const turnsAfter = getSessionHistory(state.sessionId);
+    const lastTurn = turnsAfter[turnsAfter.length - 1];
+    if (lastTurn && toolActivities.length > 0) {
+      setTurnToolActivities(state.sessionId, lastTurn.turnIndex, toolActivities);
+    }
+    return result;
   } finally {
     activeConversationTurns.delete(conversationId);
   }
@@ -370,6 +392,9 @@ export function createChatServer(): WebSocketServer {
           const dtoTurns = turns.map((t) => ({
             ...t,
             ...(sessionControlTurnIndexes.has(t.turnIndex) ? { fromOtherSession: true } : {}),
+            ...(meta?.toolActivitiesByTurnIndex?.[String(t.turnIndex)]
+              ? { toolActivities: meta.toolActivitiesByTurnIndex[String(t.turnIndex)] }
+              : {}),
           }));
           send(ws, { type: 'sessions:history-result', requestId: msg.requestId, ok: true, sessionId: msg.sessionId, turns: dtoTurns });
         } catch (err: any) {

@@ -1211,4 +1211,13 @@ public class SessionTurn
     [JsonPropertyName("timestamp")] public string Timestamp { get; set; } = string.Empty;
     /// <summary>True when this turn was dispatched via the session-control MCP's run_turn_on_session tool rather than typed by this session's own human user (see server/src/sessionMeta.ts).</summary>
     [JsonPropertyName("fromOtherSession")] public bool FromOtherSession { get; set; }
+    [JsonPropertyName("toolActivities")] public List<SessionToolActivity>? ToolActivities { get; set; }
+}
+
+public class SessionToolActivity
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "tool";
+    [JsonPropertyName("summary")] public string? Summary { get; set; }
+    [JsonPropertyName("detail")] public string? Detail { get; set; }
+    [JsonPropertyName("success")] public bool? Success { get; set; }
 }

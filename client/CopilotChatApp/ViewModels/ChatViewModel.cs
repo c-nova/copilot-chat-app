@@ -284,16 +284,12 @@ public class ChatViewModel : INotifyPropertyChanged, IAsyncDisposable
     void HandleToolEvent(ToolEventArgs args)
     {
         IsWaitingForResponse = false;
-        // If an assistant bubble was started (e.g. streaming reasoning text) before this tool call,
-        // seal it in place so the *next* delta/final creates a fresh bubble positioned after the
-        // tool rows - otherwise the eventual final answer would end up visually above tool activity
-        // that happened after the bubble was first created.
+        // Assistant deltas emitted immediately before a tool call are intermediate working context,
+        // not a user-visible answer. Represent that activity with the compact tool row below rather
+        // than sealing a potentially huge Markdown payload into a normal chat bubble.
         if (args.Status == "start" && _pendingAssistantMessage is not null)
         {
-            if (string.IsNullOrWhiteSpace(_pendingAssistantMessage.Text))
-            {
-                Messages.Remove(_pendingAssistantMessage);
-            }
+            Messages.Remove(_pendingAssistantMessage);
             _pendingAssistantMessage = null;
             _pendingAssistantText.Clear();
         }
@@ -357,6 +353,10 @@ public class ChatViewModel : INotifyPropertyChanged, IAsyncDisposable
             {
                 Messages.Add(new ChatMessage { Role = ChatRole.User, Text = turn.UserMessage, IsFromOtherSession = turn.FromOtherSession });
             }
+            foreach (var activity in turn.ToolActivities ?? [])
+            {
+                Messages.Add(CreateCompletedToolMessage(activity));
+            }
             if (!string.IsNullOrWhiteSpace(turn.AssistantResponse))
             {
                 Messages.Add(new ChatMessage { Role = ChatRole.Assistant, Text = turn.AssistantResponse, IsFromOtherSession = turn.FromOtherSession });
@@ -364,6 +364,14 @@ public class ChatViewModel : INotifyPropertyChanged, IAsyncDisposable
         }
 
         _ = _chatClient.DisconnectAsync();
+    }
+
+    internal static ChatMessage CreateCompletedToolMessage(SessionToolActivity activity)
+    {
+        var icon = activity.Success == false ? "❌" : "✅";
+        var statusLine = activity.Success == false ? "Status: ❌ Failed" : "Status: ✅ Completed";
+        var detail = $"🔧 {activity.Name}\n\n{activity.Detail ?? "(no arguments)"}\n\n{statusLine}";
+        return new ChatMessage { Role = ChatRole.Tool, Text = $"{icon} {activity.Name}", ToolDetail = detail, IsRunning = false };
     }
 
     public async ValueTask DisposeAsync() => await _chatClient.DisposeAsync();

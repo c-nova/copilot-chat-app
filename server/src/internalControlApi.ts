@@ -101,6 +101,9 @@ export function createInternalControlApi(): http.Server {
         const dtoTurns = turns.map((t) => ({
           ...t,
           ...(sessionControlTurnIndexes.has(t.turnIndex) ? { fromOtherSession: true } : {}),
+          ...(meta?.toolActivitiesByTurnIndex?.[String(t.turnIndex)]
+            ? { toolActivities: meta.toolActivitiesByTurnIndex[String(t.turnIndex)] }
+            : {}),
         }));
         sendJson(res, 200, { ok: true, sessionId, turns: dtoTurns });
         return;

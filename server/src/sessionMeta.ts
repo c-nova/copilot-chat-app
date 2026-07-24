@@ -21,6 +21,12 @@ export interface SessionMetaEntry {
    */
   sessionControlTurnIndexes?: number[];
   /**
+   * Completed tool activity shown during a turn, keyed by the CLI turnIndex. The CLI session DB
+   * persists only the user/final-assistant text, so this sidecar lets the client restore the same
+   * compact tool rows after reopening a chat. Details are already secret-redacted by copilotRunner.
+   */
+  toolActivitiesByTurnIndex?: Record<string, PersistedToolActivity[]>;
+  /**
    * PBI-025: the session id of this session's "main"/parent session in the Orchestrator screen, if
    * this session was Spawned as a child (either manually from the UI or automatically via the
    * session-control MCP's spawn_session tool). Absent for ordinary top-level sessions. Sidecar-only,
@@ -35,6 +41,13 @@ export interface SessionMetaEntry {
    * without the user having to re-pick every time. Sidecar-only, same rationale as the fields above.
    */
   orchestratorMain?: boolean;
+}
+
+export interface PersistedToolActivity {
+  name: string;
+  summary?: string;
+  detail?: string;
+  success?: boolean;
 }
 
 type SessionMetaStore = Record<string, SessionMetaEntry>;
@@ -111,6 +124,22 @@ export function markSessionControlTurn(sessionId: string, turnIndex: number): vo
   const indexes = new Set(existing?.sessionControlTurnIndexes ?? []);
   indexes.add(turnIndex);
   store[sessionId] = { ...existing, updatedAt: new Date().toISOString(), sessionControlTurnIndexes: [...indexes].sort((a, b) => a - b) };
+  writeStore(store);
+}
+
+/** Persists the completed tool timeline for one turn without disturbing other session metadata. */
+export function setTurnToolActivities(sessionId: string, turnIndex: number, activities: PersistedToolActivity[]): void {
+  if (activities.length === 0) return;
+  const store = readStore();
+  const existing = store[sessionId];
+  store[sessionId] = {
+    ...existing,
+    updatedAt: new Date().toISOString(),
+    toolActivitiesByTurnIndex: {
+      ...existing?.toolActivitiesByTurnIndex,
+      [String(turnIndex)]: activities,
+    },
+  };
   writeStore(store);
 }
 

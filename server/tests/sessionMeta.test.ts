@@ -100,6 +100,37 @@ describe('sessionMeta', () => {
     expect(meta?.sessionControlTurnIndexes).toEqual([2]);
   });
 
+  it('persists completed tool activities by turnIndex without disturbing other metadata', () => {
+    const { getSessionMeta, setSessionLabel, setTurnToolActivities } = require('../src/sessionMeta');
+    setSessionLabel('session-1', 'With tools');
+    setTurnToolActivities('session-1', 4, [
+      { name: 'view', summary: 'README.md', detail: '{\n  "path": "README.md"\n}', success: true },
+      { name: 'edit', detail: '{\n  "path": "README.md"\n}', success: false },
+    ]);
+    const meta = getSessionMeta('session-1');
+    expect(meta?.label).toBe('With tools');
+    expect(meta?.toolActivitiesByTurnIndex?.['4']).toEqual([
+      { name: 'view', summary: 'README.md', detail: '{\n  "path": "README.md"\n}', success: true },
+      { name: 'edit', detail: '{\n  "path": "README.md"\n}', success: false },
+    ]);
+  });
+
+  it('keeps tool activities from separate turns independently', () => {
+    const { getSessionMeta, setTurnToolActivities } = require('../src/sessionMeta');
+    setTurnToolActivities('session-1', 1, [{ name: 'view', success: true }]);
+    setTurnToolActivities('session-1', 2, [{ name: 'search', success: true }]);
+    expect(getSessionMeta('session-1')?.toolActivitiesByTurnIndex).toEqual({
+      '1': [{ name: 'view', success: true }],
+      '2': [{ name: 'search', success: true }],
+    });
+  });
+
+  it('does not create metadata for an empty tool activity list', () => {
+    const { getSessionMeta, setTurnToolActivities } = require('../src/sessionMeta');
+    setTurnToolActivities('session-1', 1, []);
+    expect(getSessionMeta('session-1')).toBeUndefined();
+  });
+
   it('records a session as a child of a parent session', () => {
     const { getSessionMeta, setSessionParent } = require('../src/sessionMeta');
     setSessionParent('child-1', 'main-session');

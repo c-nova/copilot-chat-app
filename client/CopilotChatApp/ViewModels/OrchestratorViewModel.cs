@@ -55,6 +55,10 @@ public class ChildSessionPaneViewModel : INotifyPropertyChanged
             {
                 Messages.Add(new ChatMessage { Role = ChatRole.User, Text = turn.UserMessage, IsFromOtherSession = turn.FromOtherSession });
             }
+            foreach (var activity in turn.ToolActivities ?? [])
+            {
+                Messages.Add(ChatViewModel.CreateCompletedToolMessage(activity));
+            }
             if (!string.IsNullOrWhiteSpace(turn.AssistantResponse))
             {
                 Messages.Add(new ChatMessage { Role = ChatRole.Assistant, Text = turn.AssistantResponse, IsFromOtherSession = turn.FromOtherSession });

@@ -266,6 +266,13 @@ export interface SessionTurnDto {
   timestamp: string;
   /** True when this turn was dispatched via the session-control MCP's run_turn_on_session tool rather than typed by this session's own human user (see sessionMeta.ts). Absent/false for normal turns. */
   fromOtherSession?: boolean;
+  /** Completed tool rows emitted during this turn, restored from the app sidecar on resume. */
+  toolActivities?: Array<{
+    name: string;
+    summary?: string;
+    detail?: string;
+    success?: boolean;
+  }>;
 }
 
 export interface ServerSessionsListResultMessage {

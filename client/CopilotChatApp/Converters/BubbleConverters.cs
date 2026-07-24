@@ -119,7 +119,8 @@ public class BoolToSearchHighlightBorderConverter : IValueConverter
 /// IMultiValueConverter takes both the message and the bubble's actual available content width (see
 /// MainPage.xaml's MultiBinding) so it can estimate, per table row, how many wrapped lines each
 /// cell's text will actually take at the current font size and column width - and sum up the extra
-/// wrapped lines across the whole table, not just count rows.
+    /// wrapped lines across the whole table. A small per-row correction is then added separately
+    /// because table border/cell-padding measurement error accumulates even on unwrapped rows.
 /// </summary>
 public class MessageToBubbleBottomPaddingConverter : IMultiValueConverter
 {
@@ -133,6 +134,11 @@ public class MessageToBubbleBottomPaddingConverter : IMultiValueConverter
     const double BaseRatio = 0.8;
     /// <summary>Rough line-height multiple (over the raw font size) used per estimated wrapped line - text lines render taller than their bare font size due to leading/line-spacing.</summary>
     const double LineHeightRatio = 1.35;
+    /// <summary>Small per-row correction for table chrome that MarkdownView's self-measurement can
+    /// omit even when no cell wraps. Without this, a tall table accumulates enough border/padding
+    /// error to clip ordinary paragraphs that follow it despite the wrapped-line estimate being
+    /// accurate. Kept well below one line per row to avoid the old over-padding problem.</summary>
+    const double TableRowCorrectionRatio = 0.25;
     /// <summary>Fallback per-column width (points) used when the bubble's real width isn't available (e.g. not yet laid out) - better to have *some* extra buffer than none.</summary>
     const double FallbackColumnWidth = 140d;
     /// <summary>Horizontal padding/border overhead (points) subtracted from the bubble's outer max width to approximate the actual content area MarkdownView has to lay text out in (Frame's own Padding="10,8" - see MainPage.xaml).</summary>
@@ -156,9 +162,11 @@ public class MessageToBubbleBottomPaddingConverter : IMultiValueConverter
         var bubbleWidth = values.Length > 1 && values[1] is double w && w > 0 ? w : 0d;
         var contentWidth = bubbleWidth > BubbleHorizontalChrome ? bubbleWidth - BubbleHorizontalChrome : 0d;
 
-        var extraWrappedLines = EstimateExtraWrappedTableLines(msg.Text, fontSize, contentWidth);
+        var (extraWrappedLines, tableRowCount) = EstimateTableOverflow(msg.Text, fontSize, contentWidth);
 
-        var padding = fontSize * BaseRatio + fontSize * LineHeightRatio * extraWrappedLines;
+        var padding = fontSize * BaseRatio
+            + fontSize * LineHeightRatio * extraWrappedLines
+            + fontSize * TableRowCorrectionRatio * tableRowCount;
         return Math.Min(padding, MaxPadding);
     }
 
@@ -166,12 +174,13 @@ public class MessageToBubbleBottomPaddingConverter : IMultiValueConverter
     /// Walks the message's raw Markdown text looking for pipe-table blocks, and for each data row
     /// (skipping the `---`/`:--:` separator row) estimates how many wrapped lines the *tallest* cell
     /// in that row will actually take, given a naive equal per-column width share. Returns the sum of
-    /// (estimated row height in lines - 1) across every row - i.e. purely the *extra* lines beyond
-    /// what a single-line-per-row assumption would already budget for via BaseRatio.
+    /// (estimated row height in lines - 1) across every row, together with the number of real table
+    /// rows so the caller can also correct the smaller per-row table-chrome measurement shortfall.
     /// </summary>
-    static double EstimateExtraWrappedTableLines(string text, double fontSize, double contentWidth)
+    static (double ExtraWrappedLines, int TableRowCount) EstimateTableOverflow(string text, double fontSize, double contentWidth)
     {
         double extraLines = 0;
+        var tableRowCount = 0;
         var currentTableRows = new List<string[]>();
 
         void FlushTable()
@@ -186,6 +195,7 @@ public class MessageToBubbleBottomPaddingConverter : IMultiValueConverter
 
             foreach (var cells in currentTableRows)
             {
+                tableRowCount++;
                 var maxCellLines = 1d;
                 foreach (var cell in cells)
                 {
@@ -216,7 +226,7 @@ public class MessageToBubbleBottomPaddingConverter : IMultiValueConverter
         }
         FlushTable();
 
-        return extraLines;
+        return (extraLines, tableRowCount);
     }
 
     /// <summary>Rough estimated rendered width (points) of a string at the given font size - wide (CJK/fullwidth) characters are treated as roughly a full em, everything else as a bit over half an em, which is a reasonable average for proportional Latin text.</summary>

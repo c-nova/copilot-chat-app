@@ -8,14 +8,21 @@ jest.mock('../src/sessionHistory', () => ({
   getSessionHistory: jest.fn(() => []),
   listSessions: jest.fn(() => []),
 }));
+jest.mock('../src/sessionMeta', () => ({
+  ...jest.requireActual('../src/sessionMeta'),
+  setTurnToolActivities: jest.fn(),
+}));
 
 import { runCopilotTurn } from '../src/copilotRunner';
-import { getSessionCwd } from '../src/sessionHistory';
+import { getSessionCwd, getSessionHistory } from '../src/sessionHistory';
+import { setTurnToolActivities } from '../src/sessionMeta';
 import { config } from '../src/config';
 import { runConversationTurn } from '../src/wsServer';
 
 const mockedRunCopilotTurn = runCopilotTurn as jest.Mock;
 const mockedGetSessionCwd = getSessionCwd as jest.Mock;
+const mockedGetSessionHistory = getSessionHistory as jest.Mock;
+const mockedSetTurnToolActivities = setTurnToolActivities as jest.Mock;
 
 function uniqueId(label: string): string {
   return `${label}-${Math.random().toString(36).slice(2)}`;
@@ -25,6 +32,26 @@ describe('runConversationTurn', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockedRunCopilotTurn.mockResolvedValue({ finalText: 'ok', exitCode: 0, sessionId: 'x' });
+    mockedGetSessionHistory.mockReturnValue([]);
+  });
+
+  it('persists completed tool activity against the CLI turn created by the run', async () => {
+    const id = uniqueId('tool-history');
+    mockedGetSessionCwd.mockReturnValue(null);
+    mockedGetSessionHistory.mockReturnValue([
+      { turnIndex: 7, userMessage: 'inspect it', assistantResponse: 'done', timestamp: '2026-07-24T00:00:00Z' },
+    ]);
+    mockedRunCopilotTurn.mockImplementationOnce(async (_id, _text, _onDelta, onToolEvent) => {
+      onToolEvent({ status: 'start', toolCallId: 'call-1', name: 'view', summary: 'README.md', detail: '{"path":"README.md"}' });
+      onToolEvent({ status: 'complete', toolCallId: 'call-1', name: 'view', success: true });
+      return { finalText: 'done', exitCode: 0, sessionId: id };
+    });
+
+    await runConversationTurn(id, 'inspect it');
+
+    expect(mockedSetTurnToolActivities).toHaveBeenCalledWith(id, 7, [
+      { name: 'view', summary: 'README.md', detail: '{"path":"README.md"}', success: true },
+    ]);
   });
 
   it('throws and never calls runCopilotTurn when requireExistingSession is true but no session is found', async () => {

@@ -555,6 +555,7 @@
 **関連バグ修正**
 - **クロスサーバー親バッジ不具合**(コミット`c1c277e`): サーバー側で「このセッションは親か?」を自分のサーバー内だけでスキャンして判定していたため、子が別サーバー(PBI-026)にSpawnされたケースを見逃していた。修正: サーバー側での判定をやめ、生の`parentSessionId`のみ公開。`HomePage`が全プロファイルを横断集約する際に`ApplyOrchestratorParentFlags()`でグローバルに「親」判定するよう変更。
 - **Markdownテーブルの吹き出し下端クリッピング**(コミット`3a3d4fe`、微調整`4b805d8`): `Indiko.Maui.Controls.Markdown`のセルフ計測高さが、テーブルセル内でテキストが折り返す場合に特に不足しがちな問題。`MessageToBubbleBottomPaddingConverter`を`IMultiValueConverter`化し、吹き出しの実測幅とメッセージ本文の両方から、テーブル各セルの折り返し行数をCJK/Latin文字幅考慮で推定して補正するよう書き直し。直後に過剰補正(元からあった`BaseRatio`と二重計上)が発覚し`2.4→0.8`に調整、ユーザー確認済み「完璧」。
+- **Markdownテーブルの後続本文クリッピング再発**(2026-07-24): 9行程度の大きな表では、セル内折り返し行数の推定が合っていても、MarkdownViewが各行の罫線・セル余白ぶんを少しずつ過小計測し、その累積で表より後の本文が吹き出し下端から見切れるケースをMac実機で再確認。既存の幅ベース折り返し補正は維持しつつ、実テーブル行1行ごとにフォントサイズの0.25倍を追加する小さな行別補正を併用。旧方式のような大きな固定余白には戻さず、行数に比例する不足分だけを補う。
 
 **影響ファイル**: [client/CopilotChatApp/Views/OrchestratorPage.xaml](client/CopilotChatApp/Views/OrchestratorPage.xaml), [client/CopilotChatApp/Views/OrchestratorPage.xaml.cs](client/CopilotChatApp/Views/OrchestratorPage.xaml.cs), [client/CopilotChatApp/Views/HomePage.xaml](client/CopilotChatApp/Views/HomePage.xaml), [client/CopilotChatApp/Views/HomePage.xaml.cs](client/CopilotChatApp/Views/HomePage.xaml.cs), [client/CopilotChatApp/Services/ChatClientService.cs](client/CopilotChatApp/Services/ChatClientService.cs), [client/CopilotChatApp/Converters/BubbleConverters.cs](client/CopilotChatApp/Converters/BubbleConverters.cs), [client/CopilotChatApp/MainPage.xaml](client/CopilotChatApp/MainPage.xaml), [server/src/protocol.ts](server/src/protocol.ts), [server/src/wsServer.ts](server/src/wsServer.ts), [server/src/sessionMeta.ts](server/src/sessionMeta.ts)
 
@@ -711,3 +712,19 @@
 - `brace-expansion`を1.1.16へ更新し、npm auditのhigh 1件を解消。残る4件は最新MCP SDKの上流依存待ち。
 
 **影響ファイル**: [scripts/build-mac.sh](scripts/build-mac.sh), [server/package-lock.json](server/package-lock.json)
+
+---
+
+## PBI-037: 中間メッセージを通常バブルにせずツール行として履歴へ残す 🟡 🚧
+
+**現状 / 問題点**
+- Copilot CLIがツール実行前に出す中間ストリーム(読み込んだSkill本文など)が、巨大な通常チャットバブルとして表示される場合がある。ユーザー発言/最終回答と同列に見えて会話構造を誤認しやすい。
+- ライブ中の`View`・`edit`等はコンパクトなツール行で表示されるが、CLIの`session-store.db`はユーザー本文と最終アシスタント本文しか保存しないため、チャットを開き直すとツール行が消える。
+
+**対応内容(2026-07-24)**
+- ツール開始直前の未確定Assistantストリームは通常バブルとして確定せず削除し、直後のツール行へ集約。
+- `runConversationTurn`の共通経路で完了ツールの名前・要約・秘密値マスク済み詳細・成功状態を収集し、turn確定後に`session-meta.json`へturnIndex単位で保存。通常チャット・Orchestrator・session-control経由を共通でカバー。
+- `sessions:history`と内部履歴APIで保存済みツール活動を返し、通常チャットとPlayer履歴を「ユーザー発言 → ツール行 → 最終回答」の順で復元。
+- 過去のturnにはツールイベント情報が残っていないため遡及復元は不可。実装後に実行したturnから保存される。
+
+**影響ファイル**: [server/src/sessionMeta.ts](server/src/sessionMeta.ts), [server/src/wsServer.ts](server/src/wsServer.ts), [server/src/internalControlApi.ts](server/src/internalControlApi.ts), [server/src/protocol.ts](server/src/protocol.ts), [server/tests/sessionMeta.test.ts](server/tests/sessionMeta.test.ts), [client/CopilotChatApp/Services/ChatClientService.cs](client/CopilotChatApp/Services/ChatClientService.cs), [client/CopilotChatApp/ViewModels/ChatViewModel.cs](client/CopilotChatApp/ViewModels/ChatViewModel.cs), [client/CopilotChatApp/ViewModels/OrchestratorViewModel.cs](client/CopilotChatApp/ViewModels/OrchestratorViewModel.cs)
