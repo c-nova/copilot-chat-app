@@ -17,6 +17,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN=false
 PACKAGE=false
+SERVER_LAUNCH_AGENT_LABEL="com.copilotchatapp.server"
+SERVER_LAUNCH_AGENT_RESTARTED=false
 for arg in "$@"; do
   case "$arg" in
     --run) RUN=true ;;
@@ -37,7 +39,25 @@ step() { echo "==> $1"; }
 
 step "Installing server dependencies..."
 cd "$ROOT/server"
-npm install
+# npm 11 can rewrite platform metadata for optional native packages even though `npm ci` is
+# documented as frozen (observed with @github/copilot's Darwin/Linux/Musl packages). Preserve the
+# tracked lockfile around the install: npm still consumes it for an exact install, but generated
+# platform churn never leaks into the working tree.
+LOCKFILE_BACKUP="$(mktemp)"
+cp package-lock.json "$LOCKFILE_BACKUP"
+if npm ci; then
+  :
+else
+  exit_code=$?
+  cp "$LOCKFILE_BACKUP" package-lock.json
+  rm -f "$LOCKFILE_BACKUP"
+  exit "$exit_code"
+fi
+if ! cmp -s "$LOCKFILE_BACKUP" package-lock.json; then
+  cp "$LOCKFILE_BACKUP" package-lock.json
+  echo "Restored package-lock.json after npm platform-metadata churn."
+fi
+rm -f "$LOCKFILE_BACKUP"
 if [ ! -f .env ]; then
   cp .env.example .env
   echo "Created server/.env from .env.example - edit AUTH_TOKEN (and BROWSE_ROOTS/WORK_DIR if needed) before starting the server for real!"
@@ -45,6 +65,15 @@ fi
 
 step "Building server (TypeScript -> server/dist)..."
 npm run build
+
+# An installed LaunchAgent keeps the already-loaded JavaScript in memory even after dist changes.
+# Restart it after every successful server build so newly added protocol handlers take effect
+# immediately instead of leaving clients talking to a stale process until the next login/reboot.
+if launchctl print "gui/$(id -u)/$SERVER_LAUNCH_AGENT_LABEL" >/dev/null 2>&1; then
+  step "Restarting installed server LaunchAgent..."
+  launchctl kickstart -k "gui/$(id -u)/$SERVER_LAUNCH_AGENT_LABEL"
+  SERVER_LAUNCH_AGENT_RESTARTED=true
+fi
 
 if [ "$PACKAGE" = true ]; then
   step "Publishing Mac Catalyst client as an installer package (Release)..."
@@ -70,11 +99,15 @@ echo ""
 echo "Build complete."
 
 if [ "$RUN" = true ]; then
-  step "Starting server in the background..."
-  cd "$ROOT/server"
-  npm start &
-  SERVER_PID=$!
-  trap 'echo "==> Stopping server (pid $SERVER_PID)..."; kill "$SERVER_PID" 2>/dev/null || true' EXIT
+  if [ "$SERVER_LAUNCH_AGENT_RESTARTED" = true ]; then
+    step "Using the installed server LaunchAgent."
+  else
+    step "Starting server in the background..."
+    cd "$ROOT/server"
+    npm start &
+    SERVER_PID=$!
+    trap 'echo "==> Stopping server (pid $SERVER_PID)..."; kill "$SERVER_PID" 2>/dev/null || true' EXIT
+  fi
 
   step "Running Mac Catalyst client..."
   cd "$ROOT/client/CopilotChatApp"
