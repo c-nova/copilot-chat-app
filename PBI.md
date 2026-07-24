@@ -605,7 +605,26 @@
 - 公式`@github/copilot-sdk`の`listModels()`から、ログイン中アカウントで現在利用可能なモデルを取得する`modelCatalog.ts`を追加。
 - WebSocketに`models:list`/`models:list-result`を追加し、クライアントのモデルPickerから以降のturnへ任意のモデルIDを渡せるようにした。
 - **Server default**選択時は`COPILOT_MODEL`、未設定ならCLIデフォルトへフォールバック。選択は永続化しない。
-- モデル一覧取得テストと旧サーバー向けエラーハンドリングを追加。併せてWindows/Macの常駐サーバー再起動スクリプトを整備。
+- PickerにはSDKが返した表示名だけを表示し、送信時は対応するSDKモデルIDを使用。`auto`もSDKが返した場合だけ選択肢へ含める。
+- 選択したモデルは現在のチャットページだけに保持し、`ServerProfile`や`COPILOT_MODEL`は変更しない。
+- SDKカタログのcold startを考慮した60秒timeout、明示的な再読込、旧サーバー向けエラー表示を追加。取得失敗時も固定モデル一覧へフォールバックしない。
+
+**受け入れ条件**
+- Pickerに表示するモデルは、接続先サーバーのSDKカタログが返したものだけにする。
+- **Server default**はクライアント専用の選択肢とし、model overrideを送信しない。
+- `auto`はSDKレスポンスに含まれる場合だけ表示し、選択時は`model: "auto"`を送信する。
+- モデル選択は現在のチャットページの後続turnだけに適用し、サーバー設定には永続化しない。
+- 未選択時は`COPILOT_MODEL`をサーバーデフォルトとして使い、それも未設定ならCLI自身のデフォルトへ委ねる。
+- カタログ取得失敗を画面に表示し、ハードコードまたはドキュメント由来のモデル一覧へフォールバックしない。
+- カタログ取得に失敗しても**Server default**でチャットを続行でき、チャット画面から再読込できる。
+- 既存セッション、画像添付、MCPツール、Orchestrator turnへ回帰を起こさない。
+
+**検証結果(2026-07-21)**
+- Microsoft CFS npm registry (`https://packagefeedproxy.microsoft.io/npm/`)を使用して検証。
+- サインイン中アカウントから19モデルを取得し、`auto`を含むことを確認。モデルIDはドキュメントから推測できず、例としてMAI-Code-1-Flashは`mai-code-1-flash-picker`として返された。
+- 認証付きWebSocketの`models:list`で19モデルを取得。fresh serverでは3.36秒で応答し、一時的なSDK cold-start stallも再読込で回復した。
+- モデル関連テスト9件、サーバーテスト126件が成功。TypeScript buildも成功。
+- Pickerをチャットcomposerへ移動した後のWindows MAUI buildとRelease packageがerror 0で成功(既存warningのみ)。
 
 **影響ファイル**: [server/src/modelCatalog.ts](server/src/modelCatalog.ts), [server/src/protocol.ts](server/src/protocol.ts), [server/src/wsServer.ts](server/src/wsServer.ts), [server/src/copilotRunner.ts](server/src/copilotRunner.ts), [server/tests/modelCatalog.test.ts](server/tests/modelCatalog.test.ts), [client/CopilotChatApp/MainPage.xaml](client/CopilotChatApp/MainPage.xaml), [client/CopilotChatApp/MainPage.xaml.cs](client/CopilotChatApp/MainPage.xaml.cs), [client/CopilotChatApp/Services/ChatClientService.cs](client/CopilotChatApp/Services/ChatClientService.cs)
 
