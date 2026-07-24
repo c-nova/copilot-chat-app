@@ -728,3 +728,57 @@
 - 過去のturnにはツールイベント情報が残っていないため遡及復元は不可。実装後に実行したturnから保存される。
 
 **影響ファイル**: [server/src/sessionMeta.ts](server/src/sessionMeta.ts), [server/src/wsServer.ts](server/src/wsServer.ts), [server/src/internalControlApi.ts](server/src/internalControlApi.ts), [server/src/protocol.ts](server/src/protocol.ts), [server/tests/sessionMeta.test.ts](server/tests/sessionMeta.test.ts), [client/CopilotChatApp/Services/ChatClientService.cs](client/CopilotChatApp/Services/ChatClientService.cs), [client/CopilotChatApp/ViewModels/ChatViewModel.cs](client/CopilotChatApp/ViewModels/ChatViewModel.cs), [client/CopilotChatApp/ViewModels/OrchestratorViewModel.cs](client/CopilotChatApp/ViewModels/OrchestratorViewModel.cs)
+
+---
+
+## PBI-038: Copilot CLIのturn runnerをpersistent SDK runtimeへ移行 🔴 📋
+
+**Status:** Planned / large architectural change
+
+**現状 / 問題点**
+- 現在はchat turnごとに`copilot -p ... --session-id=<id>`を新規spawnしている。同じsession IDで会話履歴は継続できるが、Node/CLIプロセスとMCP serverは毎turn cold startになる。
+- Windows実測ではMCP初期化がturn開始へ約50秒加算されるケースがあり、Macとの差が大きい。ネットワークやモデル応答ではなく、複数MCPの起動・接続が主な待ち時間だった。
+- `@github/copilot-sdk`はPBI-030の`listModels()`だけに使っており、chat実行、streaming、tool event、session lifecycleは引き続きCLI標準出力の独自parseに依存している。
+- session一覧・履歴・hard deleteはCLI内部の`~/.copilot/session-store.db`を直接読む/更新している。内部schemaへの密結合なので、SDKが提供するsession APIと責務が重複している。
+- MCP管理も`copilot mcp list/add/remove`の短命CLIをspawnしており、chat sessionへ実際に何をloadするかがCLIのglobal configと自動検出に依存する。
+
+**目標アーキテクチャ**
+- サーバープロセス内で`CopilotClient`を長寿命で1つ管理し、`createSession()`/`resumeSession()`した`CopilotSession`へ複数turnを送る。CLI runtimeとMCPをturnごとに再起動しない。
+- `assistant.message_delta`、`assistant.message`、`tool.execution_start`/complete、`session.idle`等のtyped SDK eventを既存WebSocket protocolへ変換し、クライアントUIは段階移行中も変更せず使えるようにする。
+- SDK既定の`mode: "copilot-cli"`と`~/.copilot`を使い、既存CLI sessionを同じstoreからlist/resumeできる互換性を維持する。新しい専用storeへ無断移行しない。
+- sessionごとの`workingDirectory`、model、attachments、permission policy、MCP構成を明示し、global CLI状態への暗黙依存を減らす。
+- idle sessionはdisk上の履歴を残して`disconnect()`でき、再利用時に`resumeSession()`する。サーバー終了時は`stop()`、timeout時は`forceStop()`でruntimeを確実に片付ける。
+
+**重要な設計課題**
+- `callerSessionId.ts`は「session-control MCPの親が毎turnの`copilot --session-id=<id>`プロセスである」ことを前提にしている。persistent runtimeではこの前提が壊れるため、session-controlをSDK custom toolへ移すか、改ざん不能なsession contextを明示注入する必要がある。
+- 現在のUIではモデルをchat pageの後続turn単位で変更できるが、SDKのmodelはsession create/resume configで指定する。実行中sessionでのmodel変更方法と、未対応時の安全なresume手順をspikeで確定する。
+- SDK eventと現行CLI JSON eventの順序・payloadは完全同一ではない。PBI-037の「中間Assistantを通常バブルにしない」「完了tool activityをturnIndexへ永続化」を維持する変換層が必要。
+- SDK APIだけで取得できないturn本文・turn countがある場合は、SQLite直読を一度に削除しない。SDKをsession lifecycleのSSoTとし、履歴read modelは互換adapterとして段階的に縮小する。
+- 同じsessionをCLI runnerとSDK runnerから同時実行すると、二重turnやstore/checkpoint競合が起こり得る。runnerはサーバー起動中に固定し、session単位の排他制御も入れる。
+
+**段階移行**
+1. **Compatibility spike**: disposable sessionでSDK create/resume、既存CLI sessionのlist/resume、SQLiteへの継続保存、cwd、model切替、attachments、streaming、tool event、abortをWindows/Mac双方で実測する。
+2. **Runner abstraction**: 現在の`runCopilotTurn`契約を`cli`/`sdk`実装へ分離し、`COPILOT_RUNNER=cli|sdk`をサーバー起動時だけ評価する。既定は検証完了まで`cli`とし、設定変更+再起動で即rollback可能にする。
+3. **Persistent SDK runtime**: singleton `CopilotClient`、session cache、同一sessionのturn queue/lock、idle disconnect、graceful/forced shutdownを実装する。SDK eventを既存delta/tool/final callbackへ変換する。
+4. **Session compatibility**: CLIで作成済みの実sessionをSDKで再開し、Home一覧、履歴、soft/hard delete、CWD containment、`session-meta.json`のparent/archived/cross-session/tool activityを保持する。
+5. **Deterministic MCP**: 必須の`session-control`と選択されたMCPだけをsession configへ明示する。config discoveryの有無、global CLI MCPとのmerge優先順位、OAuth/token保存方針を固定し、Windows/Macで同じ構成を再現できるようにする。
+6. **Orchestrator migration**: local/peerのConductor・Player、既存Playerへの追加turn、cross-session attributionをSDK runnerで検証する。`callerSessionId`のOS process探索を廃止する。
+7. **Rollout**: cold/warm turn latency、runtime/MCP起動回数、memory、失敗率をCLI baselineと比較する。SDKをdefaultにした後も1 releaseはCLI rollback pathを残し、安定後に短命CLI runnerと不要なSQLite writeを削除する。
+
+**受け入れ条件**
+- 2回目以降の同一session turnでCopilot runtimeとMCPが再spawnされず、WindowsのMCP cold-start待ちが毎turn発生しない。
+- PBI-030のモデル一覧SSoTとchat page単位のモデル選択、画像添付、streaming、tool表示、cancel/timeoutが回帰しない。
+- 既存CLI sessionをSDKで再開して会話を継続でき、既存履歴を失わない。CLI/SDKが同じsessionへ同時書き込みしない。
+- 通常chat、Orchestrator、cross-server Playerの全経路が同じrunner abstractionを通り、parent-child関係とcross-session表示を保持する。
+- MCP構成がsession作成時に予測可能で、秘密値をlog/UIへ出さず、permission policyが現在の許可範囲と同等以上に厳密である。
+- SDK runtime crash、server restart、network切断後にsessionをresumeできる。終了時にruntime/MCPの孤児processを残さない。
+- `COPILOT_RUNNER=cli`へ戻して再起動すれば、データ変換やsession損失なしで旧runnerへrollbackできる。
+- server全test、Windows build/package、Mac Catalyst build、iPhone/iPad実機の主要chat flowが成功する。
+
+**計測項目**
+- server起動からSDK readyまで、session create/resumeまで、first deltaまで、turn完了までの時間。
+- cold/warm別のMCP起動回数と各MCP ready時間。
+- active/idle session数に対するNode/CLI/MCP process数とmemory使用量。
+- CLI baselineとSDK版のturn成功率、timeout/abort、resume失敗、tool event欠落数。
+
+**想定影響ファイル**: [server/src/copilotRunner.ts](server/src/copilotRunner.ts), [server/src/wsServer.ts](server/src/wsServer.ts), [server/src/internalControlApi.ts](server/src/internalControlApi.ts), [server/src/sessionHistory.ts](server/src/sessionHistory.ts), [server/src/sessionMeta.ts](server/src/sessionMeta.ts), [server/src/sessionControlMcpServer.ts](server/src/sessionControlMcpServer.ts), [server/src/callerSessionId.ts](server/src/callerSessionId.ts), [server/src/mcpManager.ts](server/src/mcpManager.ts), [server/src/modelCatalog.ts](server/src/modelCatalog.ts), [server/src/config.ts](server/src/config.ts), [server/tests](server/tests)
